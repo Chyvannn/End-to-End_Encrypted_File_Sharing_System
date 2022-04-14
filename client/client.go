@@ -222,12 +222,13 @@ func getObject(dataId UUID, encKey []byte, macKey []byte) (object interface{}, e
 	}
 	cypherBytes := data.CypherText
 	macBytes := data.MAC
+	// Verify the HMAC of data in Datastore
 	storedMac, err := userlib.HMACEval(macKey, cypherBytes)
 	if err != nil {
 		return nil, err
 	}
 	if !userlib.HMACEqual(storedMac, macBytes) {
-		return nil, errors.New("the data from the Datastore is insecure")
+		return nil, errors.New("the data from the Datastore is manipulated")
 	}
 	objectBytes := userlib.SymDec(encKey, cypherBytes)
 	err = json.Unmarshal(objectBytes, &object)
@@ -237,6 +238,11 @@ func getObject(dataId UUID, encKey []byte, macKey []byte) (object interface{}, e
 	return object, nil
 }
 
-func verifyObject(Data []byte, macKey []byte) (validate bool) {
-	return true
-}
+/* Get encryption key from user information */
+func getEncKeyFromUser() {}
+
+/* Get MAC key from user infomation */
+func getMACKeyFromUser() {}
+
+/* Get the next sublevel encryption and MAC key */
+func getNextKeyPair() {}
