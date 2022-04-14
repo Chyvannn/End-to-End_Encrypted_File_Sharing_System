@@ -97,8 +97,10 @@ func someUsefulThings() {
 }
 
 type UUID = userlib.UUID
+type PKEEncKey = userlib.PKEEncKey
 type PKEDecKey = userlib.PKEDecKey
 type DSSignKey = userlib.DSSignKey
+type DSVerifyKey = userlib.DSVerifyKey
 
 // This is the type definition for the User struct.
 // A Go struct is like a Python or Java class - it can have attributes
@@ -126,8 +128,65 @@ type Data struct {
 // NOTE: The following methods have toy (insecure!) implementations.
 
 func InitUser(username string, password string) (userdataptr *User, err error) {
+	if len(username) == 0 {
+		return nil, errors.New("the username is empty")
+	}
 	var userdata User
 	userdata.Username = username
+	uid, err := getUUIDFromUser(username)
+	if err != nil {
+		return nil, err
+	}
+	_, ok := userlib.DatastoreGet(uid)
+	if ok {
+		return nil, errors.New("the given username already exist")
+	}
+
+	// Get encKey and macKey for User ON FLY!
+	encKey := getEncKeyFromUser(username, []byte(password))
+	macKey := getMACKeyFromUser(username, []byte(password))
+
+	// Get encKey and macKey in User for FileHeader
+	userEncKey, err := userlib.HashKDF(encKey, []byte("Enc Key"))
+	if err != nil {
+		return nil, err
+	}
+	userdata.UserEncKey = userEncKey
+	userMacKey, err := userlib.HashKDF(macKey, []byte("MAC key"))
+	if err != nil {
+		return nil, err
+	}
+	userdata.UserMacKey = userMacKey
+
+	// Generate RSA key pair
+	publicKey, privateKey, err := userlib.PKEKeyGen()
+	if err != nil {
+		return nil, err
+	}
+	userdata.UserRSAPrivateKey = privateKey
+	rsaString := username + "RSA public key"
+	err = userlib.KeystoreSet(rsaString, publicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Generate digital signature key pair
+	signKey, verifyKey, err := userlib.DSKeyGen()
+	if err != nil {
+		return nil, err
+	}
+	signString := username + "Digital signature key"
+	userdata.UserSignPrivateKey = signKey
+	err = userlib.KeystoreSet(signString, verifyKey)
+	if err != nil {
+		return nil, err
+	}
+
+	//Save userdata to Datastore
+	err = storeObject(uid, userdata, encKey, macKey)
+	if err != nil {
+		return nil, err
+	}
 	return &userdata, nil
 }
 
@@ -238,11 +297,25 @@ func getObject(dataId UUID, encKey []byte, macKey []byte) (object interface{}, e
 	return object, nil
 }
 
-/* Get encryption key from user information */
-func getEncKeyFromUser() {}
+/* Get UUID from string */
+func getUUIDFromUser(str string) (uid UUID, err error) {
+	hashedStr := userlib.Hash([]byte(str))
+	uid, err = uuid.FromBytes(hashedStr[:16])
+	return
+}
 
-/* Get MAC key from user infomation */
-func getMACKeyFromUser() {}
+/* Get encryption key from username */
+func getEncKeyFromUser(username string, password []byte) (encKey []byte) {
+	encKey = userlib.Argon2Key(password, []byte(username), 16)
+	return
+}
+
+/* Get MAC key from username + password */
+func getMACKeyFromUser(username string, password []byte) (macKey []byte) {
+	temp := append(password, []byte(username)...)
+	macKey = userlib.Argon2Key(temp, []byte(username), 16)
+	return
+}
 
 /* Get the next sublevel encryption and MAC key */
 func getNextKeyPair() {}
