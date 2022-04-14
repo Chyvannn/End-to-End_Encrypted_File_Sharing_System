@@ -187,7 +187,21 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 }
 
 func GetUser(username string, password string) (userdataptr *User, err error) {
-	var userdata User
+	if len(username) == 0 {
+		return nil, errors.New("the username is empty")
+	}
+	uid, err := getUUIDFromUser(username)
+	if err != nil {
+		return nil, err
+	}
+	encKey := getEncKeyFromUser(username, []byte(password))
+	macKey := getMACKeyFromUser(username, []byte(password))
+
+	userInterface, err := getObject(uid, encKey, macKey)
+	if err != nil {
+		return nil, errors.New("username and password do not match")
+	}
+	userdata := userInterface.(User)
 	userdataptr = &userdata
 	return userdataptr, nil
 }
@@ -247,7 +261,7 @@ func storeObject(dataId UUID, object interface{}, encKey []byte, macKey []byte) 
 		return err
 	}
 	// Encrypte data and evaluate the HMAC
-	cypherBytes := userlib.SymEnc(key, dataBytes, encKey)
+	cypherBytes := userlib.SymEnc(encKey, key, dataBytes)
 	macBytes, err := userlib.HMACEval(macKey, dataBytes)
 	if err != nil {
 		return err
