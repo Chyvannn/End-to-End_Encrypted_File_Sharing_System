@@ -147,15 +147,11 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	macKey := getMACKeyFromUser(username, []byte(password))
 
 	// Get encKey and macKey in User for FileHeader
-	userEncKey, err := userlib.HashKDF(encKey, []byte("Enc Key"))
+	userEncKey, userMacKey, err := getNextKeyPair(encKey, macKey)
 	if err != nil {
 		return nil, err
 	}
 	userdata.UserEncKey = userEncKey
-	userMacKey, err := userlib.HashKDF(macKey, []byte("MAC key"))
-	if err != nil {
-		return nil, err
-	}
 	userdata.UserMacKey = userMacKey
 
 	// Generate RSA key pair
@@ -318,4 +314,14 @@ func getMACKeyFromUser(username string, password []byte) (macKey []byte) {
 }
 
 /* Get the next sublevel encryption and MAC key */
-func getNextKeyPair() {}
+func getNextKeyPair(originalEncKey []byte, originalMACKey []byte) (newEncKey []byte, newMACKey []byte, err error) {
+	newEncKey, err = userlib.HashKDF(originalEncKey, []byte("Enc Key"))
+	if err != nil {
+		return nil, nil, err
+	}
+	newMACKey, err = userlib.HashKDF(originalMACKey, []byte("MAC key"))
+	if err != nil {
+		return nil, nil, err
+	}
+	return newEncKey, newMACKey, nil
+}
