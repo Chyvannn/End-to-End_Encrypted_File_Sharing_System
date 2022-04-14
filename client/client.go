@@ -96,18 +96,31 @@ func someUsefulThings() {
 	_ = fmt.Sprintf("%s_%d", "file", 1)
 }
 
+type UUID = userlib.UUID
+type PKEDecKey = userlib.PKEDecKey
+type DSSignKey = userlib.DSSignKey
+
 // This is the type definition for the User struct.
 // A Go struct is like a Python or Java class - it can have attributes
 // (e.g. like the Username attribute) and methods (e.g. like the StoreFile method below).
 type User struct {
-	Username string
+	Username           string // store for future use (maybe)
+	UserEncKey         []byte // get from Argon2Key(), protect clientNode data
+	UserMacKey         []byte // 16-byte from Argon2Key(), protect clientNode data
+	UserRSAPrivateKey  PKEDecKey
+	UserSignPrivateKey DSSignKey
+}
 
-	// You can add other attributes here if you want! But note that in order for attributes to
-	// be included when this struct is serialized to/from JSON, they must be capitalized.
-	// On the flipside, if you have an attribute that you want to be able to access from
-	// this struct's methods, but you DON'T want that value to be included in the serialized value
-	// of this struct that's stored in datastore, then you can use a "private" variable (e.g. one that
-	// begins with a lowercase letter).
+/* Protected by userNode */
+type FileHeader struct {
+	ShareId  UUID
+	FHEncKey []byte
+	FHMacKey []byte
+}
+
+type Data struct {
+	CypherText []byte
+	MAC        []byte
 }
 
 // NOTE: The following methods have toy (insecure!) implementations.
@@ -165,4 +178,65 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 
 func (userdata *User) RevokeAccess(filename string, recipientUsername string) error {
 	return nil
+}
+
+/* Helper Functions */
+
+/* Store an object into the Datastore with given UUID */
+func storeObject(dataId UUID, object interface{}, encKey []byte, macKey []byte) (err error) {
+	var data Data
+	key := userlib.RandomBytes(16)
+	// Convert the data structure to []bytes
+	dataBytes, err := json.Marshal((object))
+	if err != nil {
+		return err
+	}
+	// Encrypte data and evaluate the HMAC
+	cypherBytes := userlib.SymEnc(key, dataBytes, encKey)
+	macBytes, err := userlib.HMACEval(macKey, dataBytes)
+	if err != nil {
+		return err
+	}
+	// put cyphertext and HMAC into data and store into Datastore
+	data.CypherText = cypherBytes
+	data.MAC = macBytes
+	storeBytes, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	userlib.DatastoreSet(dataId, storeBytes)
+	return nil
+}
+
+/* Get an object from the Datastore */
+func getObject(dataId UUID, encKey []byte, macKey []byte) (object interface{}, err error) {
+	databytes, ok := userlib.DatastoreGet(dataId)
+	if !ok {
+		return nil, errors.New("no corresponding UUID found")
+	}
+	// Get data from the Datastore
+	var data Data
+	err = json.Unmarshal(databytes, &data)
+	if err != nil {
+		return nil, err
+	}
+	cypherBytes := data.CypherText
+	macBytes := data.MAC
+	storedMac, err := userlib.HMACEval(macKey, cypherBytes)
+	if err != nil {
+		return nil, err
+	}
+	if !userlib.HMACEqual(storedMac, macBytes) {
+		return nil, errors.New("the data from the Datastore is insecure")
+	}
+	objectBytes := userlib.SymDec(encKey, cypherBytes)
+	err = json.Unmarshal(objectBytes, &object)
+	if err != nil {
+		return nil, err
+	}
+	return object, nil
+}
+
+func verifyObject(Data []byte, macKey []byte) (validate bool) {
+	return true
 }
