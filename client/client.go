@@ -197,12 +197,11 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	encKey := getEncKeyFromUser(username, []byte(password))
 	macKey := getMACKeyFromUser(username, []byte(password))
 
-	userInterface, err := getObject(uid, encKey, macKey)
+	var userdata User
+	err = getObject(uid, encKey, macKey, &userdata)
 	if err != nil {
 		return nil, errors.New("username and password do not match")
 	}
-	userdata := userInterface.(User)
-	userdataptr = &userdata
 	return userdataptr, nil
 }
 
@@ -278,33 +277,37 @@ func storeObject(dataId UUID, object interface{}, encKey []byte, macKey []byte) 
 }
 
 /* Get an object from the Datastore */
-func getObject(dataId UUID, encKey []byte, macKey []byte) (object interface{}, err error) {
+func getObject(dataId UUID, encKey []byte, macKey []byte, object interface{}) (err error) {
 	databytes, ok := userlib.DatastoreGet(dataId)
 	if !ok {
-		return nil, errors.New("no corresponding UUID found")
+		return errors.New("no corresponding UUID found")
 	}
+
 	// Get data from the Datastore
 	var data Data
 	err = json.Unmarshal(databytes, &data)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	cypherBytes := data.CypherText
 	macBytes := data.MAC
+
 	// Verify the HMAC of data in Datastore
 	storedMac, err := userlib.HMACEval(macKey, cypherBytes)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !userlib.HMACEqual(storedMac, macBytes) {
-		return nil, errors.New("the data from the Datastore is manipulated")
+		return errors.New("the data from the Datastore is manipulated")
 	}
+
+	// Decrypt object
 	objectBytes := userlib.SymDec(encKey, cypherBytes)
-	err = json.Unmarshal(objectBytes, &object)
+	err = json.Unmarshal(objectBytes, object)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return object, nil
+	return
 }
 
 /* Get UUID from string */
