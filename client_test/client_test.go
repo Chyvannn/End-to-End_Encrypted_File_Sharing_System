@@ -84,6 +84,11 @@ var _ = Describe("Client Tests", func() {
 	})
 
 	Describe("Basic Tests", func() {
+		Specify("Basic Test: empty username for InitUser.", func() {
+			userlib.DebugMsg("Initializing user with empty username")
+			_, err = client.InitUser(emptyString, defaultPassword)
+			Expect(err).ToNot(BeNil())
+		})
 
 		Specify("Basic Test: Testing InitUser/GetUser on a single user.", func() {
 			userlib.DebugMsg("Initializing user Alice.")

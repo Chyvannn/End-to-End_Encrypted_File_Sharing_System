@@ -254,15 +254,15 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 /* Store an object into the Datastore with given UUID */
 func storeObject(dataId UUID, object interface{}, encKey []byte, macKey []byte) (err error) {
 	var data Data
-	key := userlib.RandomBytes(16)
+	iv := userlib.RandomBytes(16)
 	// Convert the data structure to []bytes
-	dataBytes, err := json.Marshal((object))
+	dataBytes, err := json.Marshal(object)
 	if err != nil {
 		return err
 	}
 	// Encrypte data and evaluate the HMAC
-	cypherBytes := userlib.SymEnc(encKey, key, dataBytes)
-	macBytes, err := userlib.HMACEval(macKey, dataBytes)
+	cypherBytes := userlib.SymEnc(encKey, iv, dataBytes)
+	macBytes, err := userlib.HMACEval(macKey, cypherBytes)
 	if err != nil {
 		return err
 	}
