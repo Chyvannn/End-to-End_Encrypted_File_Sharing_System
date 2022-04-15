@@ -133,7 +133,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	}
 	var userdata User
 	userdata.Username = username
-	uid, err := getUUIDFromUser(username)
+	uid, err := getUUIDFromString(username)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +190,7 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	if len(username) == 0 {
 		return nil, errors.New("the username is empty")
 	}
-	uid, err := getUUIDFromUser(username)
+	uid, err := getUUIDFromString(username)
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +308,7 @@ func getObject(dataId UUID, encKey []byte, macKey []byte) (object interface{}, e
 }
 
 /* Get UUID from string */
-func getUUIDFromUser(str string) (uid UUID, err error) {
+func getUUIDFromString(str string) (uid UUID, err error) {
 	hashedStr := userlib.Hash([]byte(str))
 	uid, err = uuid.FromBytes(hashedStr[:16])
 	return
