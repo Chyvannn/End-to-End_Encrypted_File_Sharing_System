@@ -32,6 +32,7 @@ func TestSetupAndExecution(t *testing.T) {
 // Global Variables (feel free to add more!)
 // ================================================
 const defaultPassword = "password"
+const wrongPassword = "PaSSWoRd"
 const emptyString = ""
 const contentOne = "Bitcoin is Nick's favorite "
 const contentTwo = "digital "
@@ -97,6 +98,44 @@ var _ = Describe("Client Tests", func() {
 
 			userlib.DebugMsg("Getting user Alice.")
 			aliceLaptop, err = client.GetUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+		})
+
+		Specify("Basic Test: Testing get user with wrong password.", func() {
+			userlib.DebugMsg("Initializing user Alice.")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Getting user Alice but with wrong password.")
+			aliceDesktop, err = client.GetUser("alice", wrongPassword)
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Basic Test: Testing duplicate initialization.", func() {
+			userlib.DebugMsg("Initializing user Alice.")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Initializing user Alice again.")
+			aliceDesktop, err = client.InitUser("alice", defaultPassword)
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Basic Test: Testing multiple user instances.", func() {
+			userlib.DebugMsg("Initializing user Alice.")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Initializing user Alice again.")
+			aliceDesktop, err = client.GetUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Initializing user Alice again.")
+			aliceLaptop, err = client.GetUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Initializing user Alice again.")
+			alicePhone, err = client.GetUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
 		})
 
