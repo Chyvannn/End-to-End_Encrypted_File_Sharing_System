@@ -301,39 +301,35 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 }
 
 func (userdata *User) AppendToFile(filename string, content []byte) error {
+	var fileBody FileBody
+	err := userdata.getFileBody(filename, &fileBody)
+	if err != nil {
+		return err
+	}
+
+	// Create new content
+	var newContent FileContent
+	fcid := uuid.New()
+	newContent.PrevContent = fileBody.LastContent
+	fileBody.LastContent = fcid
+	newContent.Content = content
+	err = storeObject(fcid, newContent, fileBody.ContentEncKey, fileBody.ContentMacKey)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
 func (userdata *User) LoadFile(filename string) (content []byte, err error) {
-	tempString := fmt.Sprintf("%s_%s", userdata.Username, filename) // Get FileHeader UUID on fly
-	fhid, err := getUUIDFromString([]byte(tempString))
-	if err != nil {
-		return nil, err
-	}
-	// Get FileHeader from DataStore
-	var fileHeader FileHeader
-	err = getObject(fhid, userdata.UserEncKey, userdata.UserMacKey, &fileHeader)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get ShareNode from DataStore
-	var shareNode ShareNode
-	err = getObject(fileHeader.ShareId, fileHeader.FHEncKey, fileHeader.FHMacKey, shareNode)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get FileBody from DataStore
 	var fileBody FileBody
-	err = getObject(shareNode.FileBodyId, shareNode.FileEncKey, shareNode.FileMacKey, fileBody)
+	err = userdata.getFileBody(filename, &fileBody)
 	if err != nil {
 		return nil, err
 	}
 
 	// Get the initial content for the file
 	var fileContent FileContent
-	err = getObject(fileBody.LastContent, fileBody.ContentEncKey, fileBody.ContentMacKey, fileContent)
+	err = getObject(fileBody.LastContent, fileBody.ContentEncKey, fileBody.ContentMacKey, &fileContent)
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +337,7 @@ func (userdata *User) LoadFile(filename string) (content []byte, err error) {
 	// Append the next content to the front of the current content
 	contentBytes = append(contentBytes, fileContent.Content...)
 	for fileContent.PrevContent != uuid.Nil {
-		err = getObject(fileContent.PrevContent, fileBody.ContentEncKey, fileBody.ContentMacKey, fileContent)
+		err = getObject(fileContent.PrevContent, fileBody.ContentEncKey, fileBody.ContentMacKey, &fileContent)
 		if err != nil {
 			return nil, err
 		}
@@ -425,6 +421,35 @@ func getObject(dataId UUID, encKey []byte, macKey []byte, object interface{}) (e
 	return
 }
 
+/* Get FileBody from username and filename*/
+func (userdata User) getFileBody(filename string, fileBody interface{}) (err error) {
+	tempString := fmt.Sprintf("%s_%s", userdata.Username, filename) // Get FileHeader UUID on fly
+	fhid, err := getUUIDFromString([]byte(tempString))
+	if err != nil {
+		return err
+	}
+	// Get FileHeader from DataStore
+	var fileHeader FileHeader
+	err = getObject(fhid, userdata.UserEncKey, userdata.UserMacKey, &fileHeader)
+	if err != nil {
+		return err
+	}
+
+	// Get ShareNode from DataStore
+	var shareNode ShareNode
+	err = getObject(fileHeader.ShareId, fileHeader.FHEncKey, fileHeader.FHMacKey, &shareNode)
+	if err != nil {
+		return err
+	}
+
+	// Get FileBody from DataStore
+	err = getObject(shareNode.FileBodyId, shareNode.FileEncKey, shareNode.FileMacKey, &fileBody)
+	if err != nil {
+		return err
+	}
+	return
+}
+
 /* Get UUID from byte string */
 func getUUIDFromString(bytes []byte) (uid UUID, err error) {
 	hashedBytes := userlib.Hash(bytes)
@@ -455,5 +480,5 @@ func getNextKeyPair(originalEncKey []byte, originalMACKey []byte) (newEncKey []b
 	if err != nil {
 		return nil, nil, err
 	}
-	return newEncKey, newMACKey, nil
+	return newEncKey[:16], newMACKey[:16], nil
 }
