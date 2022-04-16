@@ -122,13 +122,14 @@ type FileHeader struct {
 
 /* A single node in the sharing tree, may have multiple owners */
 type ShareNode struct {
-	FileBodyId UUID
-	SNEncKey   []byte // Protect following ShareNode, nil if IsRoot is false
-	SNMacKey   []byte
-	FileEncKey []byte // Shared between users sharing the same file
-	FileMacKey []byte
-	IsRoot     bool   // Check if the current ShareNode is the root node
-	Children   []UUID // Children list for the root ShareNode
+	FileBodyId  UUID
+	ShareNodeId UUID
+	SNEncKey    []byte // Protect following ShareNode if is root, save keys of itself if not root
+	SNMacKey    []byte
+	FileEncKey  []byte // Shared between users sharing the same file
+	FileMacKey  []byte
+	IsRoot      bool   // Check if the current ShareNode is the root node
+	Children    []UUID // Children list for the root ShareNode
 }
 
 type FileBody struct {
@@ -147,6 +148,17 @@ type FileContent struct {
 type Data struct {
 	CypherText []byte
 	MAC        []byte
+}
+
+type Invitation struct {
+	ShareId     UUID
+	ShareEncKey []byte
+	ShareMacKey []byte
+}
+
+type InvitationData struct {
+	CypherText []byte // RSA Encrypted Invitation data
+	Signature  []byte
 }
 
 // NOTE: The following methods have toy (insecure!) implementations.
@@ -256,6 +268,7 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 	if err != nil {
 		return err
 	}
+	shareNode.ShareNodeId = snid
 	shareNode.SNEncKey = snEncKey // Direct share node always have Enc/MAC keys
 	shareNode.SNMacKey = snMacKey
 	fileEncKey, fileMacKey, err := getNextKeyPair(fileHeader.FHEncKey, fileHeader.FHMacKey)
@@ -364,7 +377,66 @@ func (userdata *User) LoadFile(filename string) (content []byte, err error) {
 
 func (userdata *User) CreateInvitation(filename string, recipientUsername string) (
 	invitationPtr uuid.UUID, err error) {
-	return
+	var senderNode ShareNode
+	err = userdata.getShareNode(filename, &senderNode)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	var recipientNode ShareNode
+	if senderNode.IsRoot {
+		// if the sender node is owner
+		// create a new ShareNode as recipient
+		recipientId := uuid.New()
+		recipientNode.ShareNodeId = recipientId
+		recipientNode.IsRoot = false // recipient node will not be a root
+		recipientNode.FileEncKey = senderNode.FileEncKey
+		recipientNode.FileMacKey = senderNode.FileMacKey
+		recipientNode.SNEncKey = senderNode.SNEncKey // recipient will store its own enc/mac key
+		recipientNode.SNMacKey = senderNode.SNMacKey
+		senderNode.Children = append(senderNode.Children, recipientId)
+		err = storeObject(recipientId, recipientNode, senderNode.SNEncKey, senderNode.SNMacKey)
+		if err != nil {
+			return uuid.Nil, err
+		}
+	} else {
+		recipientNode = senderNode
+	}
+
+	// Create invitation infomation
+	var invitation Invitation
+	invitation.ShareId = recipientNode.ShareNodeId
+	invitation.ShareEncKey = recipientNode.SNEncKey
+	invitation.ShareMacKey = recipientNode.SNMacKey
+
+	// Enc and sign invitation and store in InvitationData
+	rsaString := recipientUsername + "RSA public key"
+	rsaEncKey, ok := userlib.KeystoreGet(rsaString)
+	if !ok {
+		return uuid.Nil, errors.New("recipient RSA public key doesn't exist")
+	}
+	invitationBytes, err := json.Marshal(invitation)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	cypherInvitation, err := userlib.PKEEnc(rsaEncKey, invitationBytes)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	signature, err := userlib.DSSign(userdata.UserSignPrivateKey, cypherInvitation)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	// Create InvitationDate to actually store in DataStore
+	var invitationData InvitationData
+	invitationDataId := uuid.New()
+	invitationData.CypherText = cypherInvitation
+	invitationData.Signature = signature
+	invitationDataBytes, err := json.Marshal(invitationData)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	userlib.DatastoreSet(invitationDataId, invitationDataBytes)
+	return invitationDataId, nil
 }
 
 func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid.UUID, filename string) error {
@@ -375,9 +447,9 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	return nil
 }
 
-/**********************************************************************************/
-/*****                            Helper Functions                            *****/
-/**********************************************************************************/
+/********************************************************************************************************/
+/****************                            Helper Functions                            ****************/
+/********************************************************************************************************/
 
 /* Store an object into the Datastore with given UUID */
 func storeObject(dataId UUID, object interface{}, encKey []byte, macKey []byte) (err error) {
@@ -439,6 +511,7 @@ func getObject(dataId UUID, encKey []byte, macKey []byte, object interface{}) (e
 	return
 }
 
+/* Get ShareNode from username and filename */
 func (userdata *User) getShareNode(filename string, shareNode interface{}) (err error) {
 	tempString := fmt.Sprintf("%s_%s", userdata.Username, filename) // Get FileHeader UUID on fly
 	fhid, err := getUUIDFromString([]byte(tempString))
