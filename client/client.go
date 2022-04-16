@@ -113,13 +113,37 @@ type User struct {
 	UserSignPrivateKey DSSignKey
 }
 
-/* Protected by userNode */
+/* The starting position for a file, save metadata for file */
+/* UUID of FileHeader is create by username + filename */
 type FileHeader struct {
-	ShareId  UUID
-	FHEncKey []byte
+	ShareId  UUID   // the ShareNode for a user
+	FHEncKey []byte // Keys to protect share node
 	FHMacKey []byte
 }
 
+/* A single node in the sharing tree, may have multiple owners */
+type ShareNode struct {
+	FileBodyId UUID
+	SNEncKey   []byte // Protect following ShareNode, nil if IsRoot is false
+	SNMacKey   []byte
+	FileEncKey []byte // Shared between users sharing the same file
+	FileMacKey []byte
+	IsRoot     bool   // Check if the current ShareNode is the root node
+	Children   []UUID // Children list for the root ShareNode
+}
+
+type FileBody struct {
+	ContentEncKey []byte // Protect all file contents
+	ContentMacKey []byte
+	LastContent   UUID // Store the last content being appended into the file
+}
+
+type FileContent struct {
+	Content     []byte
+	PrevContent UUID
+}
+
+/* All the data stored in Datastore, */
 type Data struct {
 	CypherText []byte
 	MAC        []byte
@@ -133,7 +157,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	}
 	var userdata User
 	userdata.Username = username
-	uid, err := getUUIDFromString(username)
+	uid, err := getUUIDFromString([]byte(username))
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +214,7 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	if len(username) == 0 {
 		return nil, errors.New("the username is empty")
 	}
-	uid, err := getUUIDFromString(username)
+	uid, err := getUUIDFromString([]byte(username))
 	if err != nil {
 		return nil, err
 	}
@@ -206,15 +230,74 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 }
 
 func (userdata *User) StoreFile(filename string, content []byte) (err error) {
-	storageKey, err := uuid.FromBytes(userlib.Hash([]byte(filename + userdata.Username))[:16])
+	// Create FileHeader
+	var fileHeader FileHeader
+	tempString := fmt.Sprintf("%s_%s", userdata.Username, filename) // Get FileHeader UUID on fly
+	fhid, err := getUUIDFromString([]byte(tempString))
 	if err != nil {
 		return err
 	}
-	contentBytes, err := json.Marshal(content)
+	fhEncKey, fhMacKey, err := getNextKeyPair(userdata.UserEncKey, userdata.UserMacKey)
 	if err != nil {
 		return err
 	}
-	userlib.DatastoreSet(storageKey, contentBytes)
+	fileHeader.FHEncKey = fhEncKey
+	fileHeader.FHMacKey = fhMacKey
+	snid := uuid.New() // Generate direct ShareNode UUID
+	fileHeader.ShareId = snid
+	err = storeObject(fhid, fileHeader, userdata.UserEncKey, userdata.UserMacKey)
+	if err != nil {
+		return err
+	}
+
+	// Create new ShareNode
+	var shareNode ShareNode // UUID generated in the previsou step
+	snEncKey, snMacKey, err := getNextKeyPair(fileHeader.FHEncKey, fileHeader.FHMacKey)
+	if err != nil {
+		return err
+	}
+	shareNode.SNEncKey = snEncKey // Direct share node always have Enc/MAC keys
+	shareNode.SNMacKey = snMacKey
+	fileEncKey, fileMacKey, err := getNextKeyPair(fileHeader.FHEncKey, fileHeader.FHMacKey)
+	if err != nil {
+		return err
+	}
+	shareNode.FileEncKey = fileEncKey
+	shareNode.FileMacKey = fileMacKey
+	shareNode.IsRoot = true // the shareNode created by StoreFile will always be the root
+	shareNode.Children = nil
+	fbid := uuid.New() // generate FileBody UUID
+	shareNode.FileBodyId = fbid
+	// Direct ShareNode is protected by the fileHeader key pairs
+	err = storeObject(snid, shareNode, fileHeader.FHEncKey, fileHeader.FHMacKey)
+	if err != nil {
+		return err
+	}
+
+	// Create fileBody, protect by FileEncKey, FileMACKey
+	var fileBody FileBody
+	fbEncKey, fbMacKey, err := getNextKeyPair(shareNode.FileEncKey, shareNode.FileMacKey)
+	if err != nil {
+		return err
+	}
+	fileBody.ContentEncKey = fbEncKey
+	fileBody.ContentMacKey = fbMacKey
+	fcid := uuid.New() // Generate random content UUID
+	fileBody.LastContent = fcid
+	err = storeObject(fbid, fileBody, shareNode.FileEncKey, shareNode.FileMacKey)
+	if err != nil {
+		return nil
+	}
+
+	// Create FileContent for the file
+	var fileContent FileContent
+	fileContent.Content = content
+	fileContent.PrevContent = uuid.Nil
+	err = storeObject(fcid, fileContent, fileBody.ContentEncKey, fileBody.ContentMacKey)
+	if err != nil {
+		return err
+	}
+
 	return
 }
 
@@ -310,10 +393,10 @@ func getObject(dataId UUID, encKey []byte, macKey []byte, object interface{}) (e
 	return
 }
 
-/* Get UUID from string */
-func getUUIDFromString(str string) (uid UUID, err error) {
-	hashedStr := userlib.Hash([]byte(str))
-	uid, err = uuid.FromBytes(hashedStr[:16])
+/* Get UUID from byte string */
+func getUUIDFromString(bytes []byte) (uid UUID, err error) {
+	hashedBytes := userlib.Hash(bytes)
+	uid, err = uuid.FromBytes(hashedBytes[:16])
 	return
 }
 
