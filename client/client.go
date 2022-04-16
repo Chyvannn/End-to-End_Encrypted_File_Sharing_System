@@ -303,27 +303,9 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 }
 
 func (userdata *User) AppendToFile(filename string, content []byte) error {
-	// var fileBody FileBody
-	// err := userdata.getFileBody(filename, &fileBody)
-	// if err != nil {
-	// 	return err
-	// }
-
-	tempString := fmt.Sprintf("%s_%s", userdata.Username, filename) // Get FileHeader UUID on fly
-	fhid, err := getUUIDFromString([]byte(tempString))
-	if err != nil {
-		return err
-	}
-	// Get FileHeader from DataStore
-	var fileHeader FileHeader
-	err = getObject(fhid, userdata.UserEncKey, userdata.UserMacKey, &fileHeader)
-	if err != nil {
-		return err
-	}
-
 	// Get ShareNode from DataStore
 	var shareNode ShareNode
-	err = getObject(fileHeader.ShareId, fileHeader.FHEncKey, fileHeader.FHMacKey, &shareNode)
+	err := userdata.getShareNode(filename, &shareNode)
 	if err != nil {
 		return err
 	}
@@ -346,7 +328,7 @@ func (userdata *User) AppendToFile(filename string, content []byte) error {
 		return err
 	}
 
-	// Update FileBody, maybe better to use pointer??? But how???
+	// Update FileBody in the DataStore
 	err = storeObject(fileBody.FileBodyId, fileBody, shareNode.FileEncKey, shareNode.FileMacKey)
 	if err != nil {
 		return err
@@ -393,7 +375,9 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	return nil
 }
 
-/* Helper Functions */
+/**********************************************************************************/
+/*****                            Helper Functions                            *****/
+/**********************************************************************************/
 
 /* Store an object into the Datastore with given UUID */
 func storeObject(dataId UUID, object interface{}, encKey []byte, macKey []byte) (err error) {
@@ -455,8 +439,7 @@ func getObject(dataId UUID, encKey []byte, macKey []byte, object interface{}) (e
 	return
 }
 
-/* Get FileBody from username and filename*/
-func (userdata User) getFileBody(filename string, fileBody interface{}) (err error) {
+func (userdata *User) getShareNode(filename string, shareNode interface{}) (err error) {
 	tempString := fmt.Sprintf("%s_%s", userdata.Username, filename) // Get FileHeader UUID on fly
 	fhid, err := getUUIDFromString([]byte(tempString))
 	if err != nil {
@@ -470,12 +453,20 @@ func (userdata User) getFileBody(filename string, fileBody interface{}) (err err
 	}
 
 	// Get ShareNode from DataStore
-	var shareNode ShareNode
 	err = getObject(fileHeader.ShareId, fileHeader.FHEncKey, fileHeader.FHMacKey, &shareNode)
 	if err != nil {
 		return err
 	}
+	return
+}
 
+/* Get FileBody from username and filename*/
+func (userdata *User) getFileBody(filename string, fileBody interface{}) (err error) {
+	var shareNode ShareNode
+	err = userdata.getShareNode(filename, &shareNode)
+	if err != nil {
+		return err
+	}
 	// Get FileBody from DataStore
 	err = getObject(shareNode.FileBodyId, shareNode.FileEncKey, shareNode.FileMacKey, &fileBody)
 	if err != nil {
