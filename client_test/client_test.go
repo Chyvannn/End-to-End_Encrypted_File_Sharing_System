@@ -126,15 +126,15 @@ var _ = Describe("Client Tests", func() {
 			alice, err = client.InitUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
 
-			userlib.DebugMsg("Initializing user Alice again.")
+			userlib.DebugMsg("Getting user Alice As aliceDesktop.")
 			aliceDesktop, err = client.GetUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
 
-			userlib.DebugMsg("Initializing user Alice again.")
+			userlib.DebugMsg("Getting user Alice as aliceLaptop.")
 			aliceLaptop, err = client.GetUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
 
-			userlib.DebugMsg("Initializing user Alice again.")
+			userlib.DebugMsg("Get user Alice as alicePhone.")
 			alicePhone, err = client.GetUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
 		})

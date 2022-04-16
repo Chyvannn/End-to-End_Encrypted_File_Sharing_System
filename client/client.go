@@ -14,7 +14,6 @@ import (
 	// hex.EncodeToString(...) is useful for converting []byte to string
 
 	// Useful for string manipulation
-	"strings"
 
 	// Useful for formatting strings (e.g. `fmt.Sprintf`).
 	"fmt"
@@ -306,16 +305,49 @@ func (userdata *User) AppendToFile(filename string, content []byte) error {
 }
 
 func (userdata *User) LoadFile(filename string) (content []byte, err error) {
-	storageKey, err := uuid.FromBytes(userlib.Hash([]byte(filename + userdata.Username))[:16])
+	tempString := fmt.Sprintf("%s_%s", userdata.Username, filename) // Get FileHeader UUID on fly
+	fhid, err := getUUIDFromString([]byte(tempString))
 	if err != nil {
 		return nil, err
 	}
-	dataJSON, ok := userlib.DatastoreGet(storageKey)
-	if !ok {
-		return nil, errors.New(strings.ToTitle("file not found"))
+	// Get FileHeader from DataStore
+	var fileHeader FileHeader
+	err = getObject(fhid, userdata.UserEncKey, userdata.UserMacKey, &fileHeader)
+	if err != nil {
+		return nil, err
 	}
-	err = json.Unmarshal(dataJSON, &content)
-	return content, err
+
+	// Get ShareNode from DataStore
+	var shareNode ShareNode
+	err = getObject(fileHeader.ShareId, fileHeader.FHEncKey, fileHeader.FHMacKey, shareNode)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get FileBody from DataStore
+	var fileBody FileBody
+	err = getObject(shareNode.FileBodyId, shareNode.FileEncKey, shareNode.FileMacKey, fileBody)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the initial content for the file
+	var fileContent FileContent
+	err = getObject(fileBody.LastContent, fileBody.ContentEncKey, fileBody.ContentMacKey, fileContent)
+	if err != nil {
+		return nil, err
+	}
+	var contentBytes []byte
+	// Append the next content to the front of the current content
+	contentBytes = append(contentBytes, fileContent.Content...)
+	for fileContent.PrevContent != uuid.Nil {
+		err = getObject(fileContent.PrevContent, fileBody.ContentEncKey, fileBody.ContentMacKey, fileContent)
+		if err != nil {
+			return nil, err
+		}
+		contentBytes = append(contentBytes, fileContent.Content...)
+	}
+	return contentBytes, nil
 }
 
 func (userdata *User) CreateInvitation(filename string, recipientUsername string) (
