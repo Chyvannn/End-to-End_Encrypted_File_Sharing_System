@@ -132,6 +132,7 @@ type ShareNode struct {
 }
 
 type FileBody struct {
+	FileBodyId    UUID
 	ContentEncKey []byte // Protect all file contents
 	ContentMacKey []byte
 	LastContent   UUID // Store the last content being appended into the file
@@ -275,6 +276,7 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 
 	// Create fileBody, protect by FileEncKey, FileMACKey
 	var fileBody FileBody
+	fileBody.FileBodyId = fbid
 	fbEncKey, fbMacKey, err := getNextKeyPair(shareNode.FileEncKey, shareNode.FileMacKey)
 	if err != nil {
 		return err
@@ -301,8 +303,34 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 }
 
 func (userdata *User) AppendToFile(filename string, content []byte) error {
+	// var fileBody FileBody
+	// err := userdata.getFileBody(filename, &fileBody)
+	// if err != nil {
+	// 	return err
+	// }
+
+	tempString := fmt.Sprintf("%s_%s", userdata.Username, filename) // Get FileHeader UUID on fly
+	fhid, err := getUUIDFromString([]byte(tempString))
+	if err != nil {
+		return err
+	}
+	// Get FileHeader from DataStore
+	var fileHeader FileHeader
+	err = getObject(fhid, userdata.UserEncKey, userdata.UserMacKey, &fileHeader)
+	if err != nil {
+		return err
+	}
+
+	// Get ShareNode from DataStore
+	var shareNode ShareNode
+	err = getObject(fileHeader.ShareId, fileHeader.FHEncKey, fileHeader.FHMacKey, &shareNode)
+	if err != nil {
+		return err
+	}
+
+	// Get FileBody from DataStore
 	var fileBody FileBody
-	err := userdata.getFileBody(filename, &fileBody)
+	err = getObject(shareNode.FileBodyId, shareNode.FileEncKey, shareNode.FileMacKey, &fileBody)
 	if err != nil {
 		return err
 	}
@@ -314,6 +342,12 @@ func (userdata *User) AppendToFile(filename string, content []byte) error {
 	fileBody.LastContent = fcid
 	newContent.Content = content
 	err = storeObject(fcid, newContent, fileBody.ContentEncKey, fileBody.ContentMacKey)
+	if err != nil {
+		return err
+	}
+
+	// Update FileBody, maybe better to use pointer??? But how???
+	err = storeObject(fileBody.FileBodyId, fileBody, shareNode.FileEncKey, shareNode.FileMacKey)
 	if err != nil {
 		return err
 	}
@@ -341,7 +375,7 @@ func (userdata *User) LoadFile(filename string) (content []byte, err error) {
 		if err != nil {
 			return nil, err
 		}
-		contentBytes = append(contentBytes, fileContent.Content...)
+		contentBytes = append(fileContent.Content, contentBytes...)
 	}
 	return contentBytes, nil
 }
