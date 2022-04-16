@@ -440,6 +440,49 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 }
 
 func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid.UUID, filename string) error {
+	// return nil
+	invitationDataBytes, ok := userlib.DatastoreGet(invitationPtr)
+	if !ok {
+		return errors.New("can not find the invitation in DataStore")
+	}
+	var invitationData InvitationData
+	err := json.Unmarshal(invitationDataBytes, &invitationData)
+	if err != nil {
+		return err
+	}
+	cypherInvitation := invitationData.CypherText
+	signature := invitationData.Signature
+	signString := senderUsername + "Digital signature key"
+	signVerifyKey, ok := userlib.KeystoreGet(signString)
+	if !ok {
+		return errors.New("can not find the sender signature verify key")
+	}
+	err = userlib.DSVerify(signVerifyKey, cypherInvitation, signature)
+	if err != nil {
+		return err
+	}
+	invitationBytes, err := userlib.PKEDec(userdata.UserRSAPrivateKey, cypherInvitation)
+	if err != nil {
+		return err
+	}
+	var invitation Invitation
+	err = json.Unmarshal(invitationBytes, &invitation)
+	if err != nil {
+		return err
+	}
+	var fileHeader FileHeader
+	tempString := fmt.Sprintf("%s_%s", userdata.Username, filename) // Get FileHeader UUID on fly
+	fhid, err := getUUIDFromString([]byte(tempString))
+	if err != nil {
+		return err
+	}
+	fileHeader.ShareId = invitation.ShareId
+	fileHeader.FHEncKey = invitation.ShareEncKey
+	fileHeader.FHMacKey = invitation.ShareMacKey
+	err = storeObject(fhid, fileHeader, userdata.UserEncKey, userdata.UserMacKey)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
