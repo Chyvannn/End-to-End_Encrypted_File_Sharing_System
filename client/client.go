@@ -106,8 +106,7 @@ type DSVerifyKey = userlib.DSVerifyKey
 // (e.g. like the Username attribute) and methods (e.g. like the StoreFile method below).
 type User struct {
 	Username           string // store for future use (maybe)
-	UserEncKey         []byte // get from Argon2Key(), protect clientNode data
-	UserMacKey         []byte // 16-byte from Argon2Key(), protect clientNode data
+	UserBaseKey        []byte // 64 bytes base key
 	UserRSAPrivateKey  PKEDecKey
 	UserSignPrivateKey DSSignKey
 }
@@ -115,33 +114,34 @@ type User struct {
 /* The starting position for a file, save metadata for file */
 /* UUID of FileHeader is create by username + filename */
 type FileHeader struct {
-	ShareId  UUID   // the ShareNode for a user
-	FHEncKey []byte // Keys to protect share node
-	FHMacKey []byte
+	ShareId   UUID   // the ShareNode for a user
+	FHBaseKey []byte // protect direct ShareNode
 }
 
 /* A single node in the sharing tree, may have multiple owners */
 type ShareNode struct {
 	FileBodyId  UUID
 	ShareNodeId UUID
-	SNEncKey    []byte // Protect following ShareNode if is root, save keys of itself if not root
-	SNMacKey    []byte
-	FileEncKey  []byte // Shared between users sharing the same file
-	FileMacKey  []byte
+	SNBaseKey   []byte // Protect following ShareNode if is root, save keys of itself if not root
+	FileBaseKey []byte // Shared between users sharing the same file
 	IsRoot      bool   // Check if the current ShareNode is the root node
 	Children    []UUID // Children list for the root ShareNode
 }
 
 type FileBody struct {
-	FileBodyId    UUID
-	ContentEncKey []byte // Protect all file contents
-	ContentMacKey []byte
-	LastContent   UUID // Store the last content being appended into the file
+	FileBodyId  UUID
+	FBBaseKey   []byte // Protect all file contents
+	LastContent UUID   // Store the last content being appended into the file
 }
 
 type FileContent struct {
 	Content     []byte
 	PrevContent UUID
+}
+
+type Invitation struct {
+	ShareId           UUID
+	InvitationBaseKey []byte
 }
 
 /* All the data stored in Datastore, */
@@ -150,12 +150,7 @@ type Data struct {
 	MAC        []byte
 }
 
-type Invitation struct {
-	ShareId     UUID
-	ShareEncKey []byte
-	ShareMacKey []byte
-}
-
+/* Invitation data store in DataStore*/
 type InvitationData struct {
 	CypherText []byte // RSA Encrypted Invitation data
 	Signature  []byte
@@ -178,17 +173,20 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 		return nil, errors.New("the given username already exist")
 	}
 
-	// Get encKey and macKey for User ON FLY!
-	encKey := getEncKeyFromUser(username, []byte(password))
-	macKey := getMACKeyFromUser(username, []byte(password))
-
-	// Get encKey and macKey in User for FileHeader
-	userEncKey, userMacKey, err := getNextKeyPair(encKey, macKey)
+	// Get base key per User ON FLY!
+	baseKey := getBaseKey(username, []byte(password))
+	// Get enc and mac key of User from baseKey
+	encKey, macKey, err := getKeyPairFromBase(baseKey)
 	if err != nil {
 		return nil, err
 	}
-	userdata.UserEncKey = userEncKey
-	userdata.UserMacKey = userMacKey
+
+	// Get encKey and macKey in User for FileHeader
+	userBaseKey, err := getNextBaseKey(baseKey)
+	if err != nil {
+		return nil, err
+	}
+	userdata.UserBaseKey = userBaseKey
 
 	// Generate RSA key pair
 	publicKey, privateKey, err := userlib.PKEKeyGen()
@@ -196,7 +194,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 		return nil, err
 	}
 	userdata.UserRSAPrivateKey = privateKey
-	rsaString := username + "RSA public key"
+	rsaString := username + "RSA_Public_Key"
 	err = userlib.KeystoreSet(rsaString, publicKey)
 	if err != nil {
 		return nil, err
@@ -207,7 +205,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	if err != nil {
 		return nil, err
 	}
-	signString := username + "Digital signature key"
+	signString := username + "Digital_Signature_Key"
 	userdata.UserSignPrivateKey = signKey
 	err = userlib.KeystoreSet(signString, verifyKey)
 	if err != nil {
@@ -230,15 +228,18 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	if err != nil {
 		return nil, err
 	}
-	encKey := getEncKeyFromUser(username, []byte(password))
-	macKey := getMACKeyFromUser(username, []byte(password))
+	baseKey := getBaseKey(username, []byte(password))
+	encKey, macKey, err := getKeyPairFromBase(baseKey)
+	if err != nil {
+		return nil, err
+	}
 
 	var userdata User
 	err = getObject(uid, encKey, macKey, &userdata)
 	if err != nil {
 		return nil, errors.New("username and password do not match")
 	}
-	return userdataptr, nil
+	return &userdata, nil
 }
 
 func (userdata *User) StoreFile(filename string, content []byte) (err error) {
@@ -247,69 +248,81 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 	tempString := fmt.Sprintf("%s_%s", userdata.Username, filename) // Get FileHeader UUID on fly
 	fhid, err := getUUIDFromString([]byte(tempString))
 	if err != nil {
-		return err
+		return
 	}
-	fhEncKey, fhMacKey, err := getNextKeyPair(userdata.UserEncKey, userdata.UserMacKey)
+	userEncKey, userMacKey, err := getKeyPairFromBase(userdata.UserBaseKey)
 	if err != nil {
-		return err
+		return
 	}
-	fileHeader.FHEncKey = fhEncKey
-	fileHeader.FHMacKey = fhMacKey
+	fileHeaderBaseKey, err := getNextBaseKey(userdata.UserBaseKey)
+	if err != nil {
+		return
+	}
+	fileHeader.FHBaseKey = fileHeaderBaseKey
 	snid := uuid.New() // Generate direct ShareNode UUID
 	fileHeader.ShareId = snid
-	err = storeObject(fhid, fileHeader, userdata.UserEncKey, userdata.UserMacKey)
+	err = storeObject(fhid, fileHeader, userEncKey, userMacKey)
 	if err != nil {
-		return err
+		return
 	}
 
 	// Create new ShareNode
 	var shareNode ShareNode // UUID generated in the previsou step
-	snEncKey, snMacKey, err := getNextKeyPair(fileHeader.FHEncKey, fileHeader.FHMacKey)
-	if err != nil {
-		return err
-	}
 	shareNode.ShareNodeId = snid
-	shareNode.SNEncKey = snEncKey // Direct share node always have Enc/MAC keys
-	shareNode.SNMacKey = snMacKey
-	fileEncKey, fileMacKey, err := getNextKeyPair(fileHeader.FHEncKey, fileHeader.FHMacKey)
+	shareNodeBaseKey, err := getNextBaseKey(fileHeaderBaseKey)
 	if err != nil {
-		return err
+		return
 	}
-	shareNode.FileEncKey = fileEncKey
-	shareNode.FileMacKey = fileMacKey
+	shareNode.SNBaseKey = shareNodeBaseKey
+	fileBaseKey, err := getNextBaseKey(shareNodeBaseKey)
+	if err != nil {
+		return
+	}
+	shareNode.FileBaseKey = fileBaseKey
 	shareNode.IsRoot = true // the shareNode created by StoreFile will always be the root
 	shareNode.Children = nil
 	fbid := uuid.New() // generate FileBody UUID
 	shareNode.FileBodyId = fbid
 	// Direct ShareNode is protected by the fileHeader key pairs
-	err = storeObject(snid, shareNode, fileHeader.FHEncKey, fileHeader.FHMacKey)
+	fileHeaderEncKey, fileHeaderMacKey, err := getKeyPairFromBase(fileHeaderBaseKey)
 	if err != nil {
-		return err
+		return
+	}
+	err = storeObject(snid, shareNode, fileHeaderEncKey, fileHeaderMacKey)
+	if err != nil {
+		return
 	}
 
 	// Create fileBody, protect by FileEncKey, FileMACKey
 	var fileBody FileBody
 	fileBody.FileBodyId = fbid
-	fbEncKey, fbMacKey, err := getNextKeyPair(shareNode.FileEncKey, shareNode.FileMacKey)
+	fileBodyBaseKey, err := getNextBaseKey(shareNodeBaseKey)
 	if err != nil {
-		return err
+		return
 	}
-	fileBody.ContentEncKey = fbEncKey
-	fileBody.ContentMacKey = fbMacKey
+	fileBody.FBBaseKey = fileBodyBaseKey
 	fcid := uuid.New() // Generate random content UUID
 	fileBody.LastContent = fcid
-	err = storeObject(fbid, fileBody, shareNode.FileEncKey, shareNode.FileMacKey)
+	fileEncKey, fileMacKey, err := getKeyPairFromBase(fileBaseKey)
 	if err != nil {
-		return nil
+		return
+	}
+	err = storeObject(fbid, fileBody, fileEncKey, fileMacKey)
+	if err != nil {
+		return
 	}
 
 	// Create FileContent for the file
 	var fileContent FileContent
 	fileContent.Content = content
 	fileContent.PrevContent = uuid.Nil
-	err = storeObject(fcid, fileContent, fileBody.ContentEncKey, fileBody.ContentMacKey)
+	fileBodyEncKey, fileBodyMacKey, err := getKeyPairFromBase(fileBodyBaseKey)
 	if err != nil {
-		return err
+		return
+	}
+	err = storeObject(fcid, fileContent, fileBodyEncKey, fileBodyMacKey)
+	if err != nil {
+		return
 	}
 
 	return
@@ -325,7 +338,11 @@ func (userdata *User) AppendToFile(filename string, content []byte) error {
 
 	// Get FileBody from DataStore
 	var fileBody FileBody
-	err = getObject(shareNode.FileBodyId, shareNode.FileEncKey, shareNode.FileMacKey, &fileBody)
+	fileEncKey, fileMacKey, err := getKeyPairFromBase(shareNode.FileBaseKey)
+	if err != nil {
+		return err
+	}
+	err = getObject(shareNode.FileBodyId, fileEncKey, fileMacKey, &fileBody)
 	if err != nil {
 		return err
 	}
@@ -336,13 +353,17 @@ func (userdata *User) AppendToFile(filename string, content []byte) error {
 	newContent.PrevContent = fileBody.LastContent
 	fileBody.LastContent = fcid
 	newContent.Content = content
-	err = storeObject(fcid, newContent, fileBody.ContentEncKey, fileBody.ContentMacKey)
+	fileBodyEncKey, fileBodyMacKey, err := getKeyPairFromBase(fileBody.FBBaseKey)
+	if err != nil {
+		return err
+	}
+	err = storeObject(fcid, newContent, fileBodyEncKey, fileBodyMacKey)
 	if err != nil {
 		return err
 	}
 
 	// Update FileBody in the DataStore
-	err = storeObject(fileBody.FileBodyId, fileBody, shareNode.FileEncKey, shareNode.FileMacKey)
+	err = storeObject(fileBody.FileBodyId, fileBody, fileEncKey, fileMacKey)
 	if err != nil {
 		return err
 	}
@@ -358,7 +379,11 @@ func (userdata *User) LoadFile(filename string) (content []byte, err error) {
 
 	// Get the initial content for the file
 	var fileContent FileContent
-	err = getObject(fileBody.LastContent, fileBody.ContentEncKey, fileBody.ContentMacKey, &fileContent)
+	fileBodyEncKey, fileBodyMacKey, err := getKeyPairFromBase(fileBody.FBBaseKey)
+	if err != nil {
+		return nil, err
+	}
+	err = getObject(fileBody.LastContent, fileBodyEncKey, fileBodyMacKey, &fileContent)
 	if err != nil {
 		return nil, err
 	}
@@ -366,7 +391,7 @@ func (userdata *User) LoadFile(filename string) (content []byte, err error) {
 	// Append the next content to the front of the current content
 	contentBytes = append(contentBytes, fileContent.Content...)
 	for fileContent.PrevContent != uuid.Nil {
-		err = getObject(fileContent.PrevContent, fileBody.ContentEncKey, fileBody.ContentMacKey, &fileContent)
+		err = getObject(fileContent.PrevContent, fileBodyMacKey, fileBodyMacKey, &fileContent)
 		if err != nil {
 			return nil, err
 		}
@@ -389,12 +414,14 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 		recipientId := uuid.New()
 		recipientNode.ShareNodeId = recipientId
 		recipientNode.IsRoot = false // recipient node will not be a root
-		recipientNode.FileEncKey = senderNode.FileEncKey
-		recipientNode.FileMacKey = senderNode.FileMacKey
-		recipientNode.SNEncKey = senderNode.SNEncKey // recipient will store its own enc/mac key
-		recipientNode.SNMacKey = senderNode.SNMacKey
+		recipientNode.SNBaseKey = senderNode.SNBaseKey
+		recipientNode.FileBaseKey = senderNode.FileBaseKey // recipient will store its own enc/mac key
 		senderNode.Children = append(senderNode.Children, recipientId)
-		err = storeObject(recipientId, recipientNode, senderNode.SNEncKey, senderNode.SNMacKey)
+		senderNodeEncKey, senderNodeMacKey, err := getKeyPairFromBase(senderNode.SNBaseKey)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		err = storeObject(recipientId, recipientNode, senderNodeEncKey, senderNodeMacKey)
 		if err != nil {
 			return uuid.Nil, err
 		}
@@ -405,11 +432,10 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 	// Create invitation infomation
 	var invitation Invitation
 	invitation.ShareId = recipientNode.ShareNodeId
-	invitation.ShareEncKey = recipientNode.SNEncKey
-	invitation.ShareMacKey = recipientNode.SNMacKey
+	invitation.InvitationBaseKey = recipientNode.SNBaseKey
 
 	// Enc and sign invitation and store in InvitationData
-	rsaString := recipientUsername + "RSA public key"
+	rsaString := recipientUsername + "RSA_Public_Key"
 	rsaEncKey, ok := userlib.KeystoreGet(rsaString)
 	if !ok {
 		return uuid.Nil, errors.New("recipient RSA public key doesn't exist")
@@ -452,7 +478,7 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 	}
 	cypherInvitation := invitationData.CypherText
 	signature := invitationData.Signature
-	signString := senderUsername + "Digital signature key"
+	signString := senderUsername + "Digital_Signature_Key"
 	signVerifyKey, ok := userlib.KeystoreGet(signString)
 	if !ok {
 		return errors.New("can not find the sender signature verify key")
@@ -477,9 +503,12 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 		return err
 	}
 	fileHeader.ShareId = invitation.ShareId
-	fileHeader.FHEncKey = invitation.ShareEncKey
-	fileHeader.FHMacKey = invitation.ShareMacKey
-	err = storeObject(fhid, fileHeader, userdata.UserEncKey, userdata.UserMacKey)
+	fileHeader.FHBaseKey = invitation.InvitationBaseKey
+	userEncKey, userMacKey, err := getKeyPairFromBase(userdata.UserBaseKey)
+	if err != nil {
+		return err
+	}
+	err = storeObject(fhid, fileHeader, userEncKey, userMacKey)
 	if err != nil {
 		return err
 	}
@@ -563,15 +592,23 @@ func (userdata *User) getShareNode(filename string, shareNode interface{}) (err 
 	}
 	// Get FileHeader from DataStore
 	var fileHeader FileHeader
-	err = getObject(fhid, userdata.UserEncKey, userdata.UserMacKey, &fileHeader)
+	userEncKey, userMacKey, err := getKeyPairFromBase(userdata.UserBaseKey)
 	if err != nil {
-		return err
+		return
+	}
+	err = getObject(fhid, userEncKey, userMacKey, &fileHeader)
+	if err != nil {
+		return
 	}
 
 	// Get ShareNode from DataStore
-	err = getObject(fileHeader.ShareId, fileHeader.FHEncKey, fileHeader.FHMacKey, &shareNode)
+	fileHeaderEncKey, fileHeaderMacKey, err := getKeyPairFromBase(fileHeader.FHBaseKey)
 	if err != nil {
-		return err
+		return
+	}
+	err = getObject(fileHeader.ShareId, fileHeaderEncKey, fileHeaderMacKey, &shareNode)
+	if err != nil {
+		return
 	}
 	return
 }
@@ -581,12 +618,16 @@ func (userdata *User) getFileBody(filename string, fileBody interface{}) (err er
 	var shareNode ShareNode
 	err = userdata.getShareNode(filename, &shareNode)
 	if err != nil {
-		return err
+		return
 	}
 	// Get FileBody from DataStore
-	err = getObject(shareNode.FileBodyId, shareNode.FileEncKey, shareNode.FileMacKey, &fileBody)
+	fileEncKey, fileMacKey, err := getKeyPairFromBase(shareNode.FileBaseKey)
 	if err != nil {
-		return err
+		return
+	}
+	err = getObject(shareNode.FileBodyId, fileEncKey, fileMacKey, &fileBody)
+	if err != nil {
+		return
 	}
 	return
 }
@@ -598,28 +639,30 @@ func getUUIDFromString(bytes []byte) (uid UUID, err error) {
 	return
 }
 
-/* Get encryption key from username */
-func getEncKeyFromUser(username string, password []byte) (encKey []byte) {
-	encKey = userlib.Argon2Key(password, []byte(username), 16)
-	return
-}
-
-/* Get MAC key from username + password */
-func getMACKeyFromUser(username string, password []byte) (macKey []byte) {
+/* Get base key from username + password to derive enc/mac key*/
+func getBaseKey(username string, password []byte) (baseKey []byte) {
 	temp := append(password, []byte(username)...)
-	macKey = userlib.Argon2Key(temp, []byte(username), 16)
+	baseKey = userlib.Argon2Key(temp, []byte(username), 16)
 	return
 }
 
-/* Get the next sublevel encryption and MAC key */
-func getNextKeyPair(originalEncKey []byte, originalMACKey []byte) (newEncKey []byte, newMACKey []byte, err error) {
-	newEncKey, err = userlib.HashKDF(originalEncKey, []byte("Enc Key"))
+/* Get encryption & MAC key from base key */
+func getKeyPairFromBase(baseKey []byte) (encKey []byte, macKey []byte, err error) {
+	encKey, err = userlib.HashKDF(baseKey, []byte("Encryption_Key"))
 	if err != nil {
 		return nil, nil, err
 	}
-	newMACKey, err = userlib.HashKDF(originalMACKey, []byte("MAC key"))
+	macKey, err = userlib.HashKDF(baseKey, []byte("MAC_Key"))
 	if err != nil {
 		return nil, nil, err
 	}
-	return newEncKey[:16], newMACKey[:16], nil
+	return encKey[:16], macKey[:16], nil
+}
+
+func getNextBaseKey(originalBaseKey []byte) (newBaseKey []byte, err error) {
+	newBaseKey, err = userlib.HashKDF(originalBaseKey[:16], []byte("Base_Key"))
+	if err != nil {
+		return nil, err
+	}
+	return newBaseKey[:16], nil
 }
