@@ -114,8 +114,7 @@ type User struct {
 /* The starting position for a file, save metadata for file
  * UUID of FileHeader is create by username + filename */
 type FileHeader struct {
-	ShareId UUID // the ShareNode for a user
-	//TODO: Derive SNBaseKey for each root ShareNode on fly using UserBaseKey + filename
+	ShareId   UUID   // the ShareNode for a user
 	FHBaseKey []byte // protect direct ShareNode
 }
 
@@ -177,7 +176,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	}
 
 	// Get base key per User ON FLY!
-	baseKey := getBaseKey(username, []byte(password))
+	baseKey := getUserBaseKey(username, []byte(password))
 	// Get enc and mac key of User from baseKey
 	encKey, macKey, err := getKeyPairFromBase(baseKey)
 	if err != nil {
@@ -231,7 +230,7 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	if err != nil {
 		return nil, err
 	}
-	baseKey := getBaseKey(username, []byte(password))
+	baseKey := getUserBaseKey(username, []byte(password))
 	encKey, macKey, err := getKeyPairFromBase(baseKey)
 	if err != nil {
 		return nil, err
@@ -257,7 +256,7 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 	if err != nil {
 		return
 	}
-	fileHeaderBaseKey, err := getNextBaseKey(userdata.UserBaseKey)
+	fileHeaderBaseKey, err := getFileHeaderBaseKey(userdata.UserBaseKey, filename)
 	if err != nil {
 		return
 	}
@@ -794,10 +793,19 @@ func getUUIDFromString(bytes []byte) (uid UUID, err error) {
 }
 
 /* Get base key from username + password to derive enc/mac key*/
-func getBaseKey(username string, password []byte) (baseKey []byte) {
+func getUserBaseKey(username string, password []byte) (baseKey []byte) {
 	temp := append(password, []byte(username)...)
 	baseKey = userlib.Argon2Key(temp, []byte(username), 16)
 	return
+}
+
+/* Get FileHeader base key from user base key and filename*/
+func getFileHeaderBaseKey(originalBaseKey []byte, filename string) (newBaseKey []byte, err error) {
+	newBaseKey, err = userlib.HashKDF(originalBaseKey, []byte("Base_Key"))
+	if err != nil {
+		return nil, err
+	}
+	return newBaseKey[:16], nil
 }
 
 /* Get encryption & MAC key from base key */
@@ -828,7 +836,7 @@ func getChildKeyPairFromBase(baseKey []byte, recipientName string) (encKey []byt
 
 /* Get next base key from current one */
 func getNextBaseKey(originalBaseKey []byte) (newBaseKey []byte, err error) {
-	newBaseKey, err = userlib.HashKDF(originalBaseKey[:16], []byte("Base_Key"))
+	newBaseKey, err = userlib.HashKDF(originalBaseKey, []byte("Base_Key"))
 	if err != nil {
 		return nil, err
 	}
