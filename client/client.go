@@ -106,7 +106,7 @@ type DSVerifyKey = userlib.DSVerifyKey
 // (e.g. like the Username attribute) and methods (e.g. like the StoreFile method below).
 type User struct {
 	Username           string // store for future use (maybe)
-	UserBaseKey        []byte // 64 bytes base key
+	UserBaseKey        []byte
 	UserRSAPrivateKey  PKEDecKey
 	UserSignPrivateKey DSSignKey
 }
@@ -129,7 +129,6 @@ type ShareNode struct {
 }
 
 type FileBody struct {
-	FileBodyId  UUID
 	FBBaseKey   []byte // Protect all file contents
 	LastContent UUID   // Store the last content being appended into the file
 }
@@ -295,7 +294,6 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 
 	// Create fileBody, protect by FileEncKey, FileMACKey
 	var fileBody FileBody
-	fileBody.FileBodyId = fbid
 	fileBodyBaseKey, err := getNextBaseKey(shareNodeBaseKey)
 	if err != nil {
 		return
@@ -346,7 +344,6 @@ func (userdata *User) AppendToFile(filename string, content []byte) error {
 	if err != nil {
 		return err
 	}
-
 	// Create new content
 	var newContent FileContent
 	fcid := uuid.New()
@@ -363,7 +360,7 @@ func (userdata *User) AppendToFile(filename string, content []byte) error {
 	}
 
 	// Update FileBody in the DataStore
-	err = storeObject(fileBody.FileBodyId, fileBody, fileEncKey, fileMacKey)
+	err = storeObject(shareNode.FileBodyId, fileBody, fileEncKey, fileMacKey)
 	if err != nil {
 		return err
 	}
@@ -391,7 +388,7 @@ func (userdata *User) LoadFile(filename string) (content []byte, err error) {
 	// Append the next content to the front of the current content
 	contentBytes = append(contentBytes, fileContent.Content...)
 	for fileContent.PrevContent != uuid.Nil {
-		err = getObject(fileContent.PrevContent, fileBodyMacKey, fileBodyMacKey, &fileContent)
+		err = getObject(fileContent.PrevContent, fileBodyEncKey, fileBodyMacKey, &fileContent)
 		if err != nil {
 			return nil, err
 		}

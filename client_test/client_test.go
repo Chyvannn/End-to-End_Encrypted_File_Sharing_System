@@ -163,16 +163,29 @@ var _ = Describe("Client Tests", func() {
 			err = alice.StoreFile(aliceFile, []byte(contentOne))
 			Expect(err).To(BeNil())
 
+			userlib.DebugMsg("Loading file...")
+			data, err := alice.LoadFile(aliceFile)
+			userlib.DebugMsg("\nFile Content: %s\n", data)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentOne)))
+
 			userlib.DebugMsg("Appending file data: %s", contentTwo)
 			err = alice.AppendToFile(aliceFile, []byte(contentTwo))
 			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Loading file...")
+			data, err = alice.LoadFile(aliceFile)
+			userlib.DebugMsg("\nFile Content: %s\n", data)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentOne + contentTwo)))
 
 			userlib.DebugMsg("Appending file data: %s", contentThree)
 			err = alice.AppendToFile(aliceFile, []byte(contentThree))
 			Expect(err).To(BeNil())
 
 			userlib.DebugMsg("Loading file...")
-			data, err := alice.LoadFile(aliceFile)
+			data, err = alice.LoadFile(aliceFile)
+			userlib.DebugMsg("\nFile Content: %s\n", data)
 			Expect(err).To(BeNil())
 			Expect(data).To(Equal([]byte(contentOne + contentTwo + contentThree)))
 		})
