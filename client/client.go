@@ -124,6 +124,7 @@ type FileHeader struct {
 type ShareNode struct {
 	FileBodyId  UUID
 	ShareNodeId UUID
+	//TODO: Derive SNBaseKey for each children ShareNode on Fly using SNBaseKey + recipient name
 	SNBaseKey   []byte // Protect following ShareNode if is root, save keys of itself if not root
 	FileBaseKey []byte // Shared between users sharing the same file
 	IsRoot      bool   // Check if the current ShareNode is the root node
@@ -522,24 +523,34 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 }
 
 func (userdata *User) RevokeAccess(filename string, recipientUsername string) error {
+	// Get the owner ShareNode
 	var ownerNode ShareNode
 	err := userdata.getShareNode(filename, &ownerNode)
 	if err != nil {
 		return err
 	}
 	if !ownerNode.IsRoot {
-		return errors.New("current user does not owns the file")
+		return errors.New("current user does not own the file")
 	}
-	tempString := fmt.Sprintf("%s_%s", userdata.Username, recipientUsername)
 
+	// Get UUID of the recipient ShareNode
+	tempString := fmt.Sprintf("%s_%s", userdata.Username, recipientUsername)
 	recipientShareId, err := getUUIDFromString([]byte(tempString))
 	if err != nil {
 		return err
 	}
+
+	// Derive new FileBaseKey and SNBaseKey from the old ones
 	newFileBaseKey, err := getNextBaseKey(ownerNode.FileBaseKey)
 	if err != nil {
 		return err
 	}
+	newSNBaseKey, err := getNextBaseKey(ownerNode.SNBaseKey)
+	if err != nil {
+		return err
+	}
+
+	// Get old/new sn/file enc/mac key from old/new sn/file base key
 	oldFileEncKey, oldFileMacKey, err := getKeyPairFromBase(ownerNode.FileBaseKey)
 	if err != nil {
 		return err
@@ -548,10 +559,8 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	if err != nil {
 		return err
 	}
-	newSNBaseKey, err := getNextBaseKey(ownerNode.SNBaseKey)
-	if err != nil {
-		return err
-	}
+	ownerNode.FileBaseKey = newFileBaseKey
+
 	oldSNEncKey, oldSNMacKey, err := getKeyPairFromBase(ownerNode.SNBaseKey)
 	if err != nil {
 		return err
@@ -560,7 +569,9 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	if err != nil {
 		return err
 	}
+	ownerNode.SNBaseKey = newSNBaseKey
 
+	// childrenPosition := -1
 	for i := 0; i < len(ownerNode.Children); i++ {
 		if ownerNode.Children[i] != recipientShareId {
 			var shareNode ShareNode
@@ -568,31 +579,69 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 			if err != nil {
 				return err
 			}
-			// update key pairs in remaining ShareNodes
+			// Update key pairs in remaining ShareNodes
 			shareNode.FileBaseKey = newFileBaseKey
 			shareNode.SNBaseKey = newSNBaseKey
 
-			// recypher ShareNode on DataStore
+			// Recypher ShareNode on DataStore
 			err = storeObject(ownerNode.Children[i], shareNode, newSNEncKey, newSNMacKey)
 			if err != nil {
 				return err
 			}
 		} else {
-			// Remove the recipient UUID from children and DataStore
-			userlib.DatastoreDelete(ownerNode.Children[i])
-			ownerNode.Children = append(ownerNode.Children[:i], ownerNode.Children[i+1:]...)
+			// Zero out the recipient UUID
+			ownerNode.Children[i] = uuid.Nil
 		}
 	}
+
 	// Recypher FileBody
 	var fileBody FileBody
 	err = getObject(ownerNode.FileBodyId, oldFileEncKey, oldFileMacKey, &fileBody)
 	if err != nil {
 		return err
 	}
-	fileBody.FBBaseKey = newFileBaseKey
+
+	// Generate new FileBody base key
+	newFBBaseKey, err := getNextBaseKey(fileBody.FBBaseKey)
+	if err != nil {
+		return err
+	}
+	oldFBEncKey, oldFBMacKey, err := getKeyPairFromBase(fileBody.FBBaseKey)
+	if err != nil {
+		return err
+	}
+	newFBEncKey, newFBMacKey, err := getKeyPairFromBase(newFBBaseKey)
+	if err != nil {
+		return err
+	}
+	fileBody.FBBaseKey = newFBBaseKey
+
+	// Recypher the fileBody
 	err = storeObject(ownerNode.FileBodyId, fileBody, newFileEncKey, newFileMacKey)
 	if err != nil {
 		return err
+	}
+
+	// Recypher the entire file with updated fileBaseKey
+	var fileContent FileContent
+	err = getObject(fileBody.LastContent, oldFBEncKey, oldFBMacKey, &fileContent)
+	if err != nil {
+		return err
+	}
+	err = storeObject(fileBody.LastContent, fileContent, newFBEncKey, newFBMacKey)
+	if err != nil {
+		return err
+	}
+
+	for fileContent.PrevContent != uuid.Nil {
+		err = getObject(fileContent.PrevContent, oldFBEncKey, oldFBMacKey, &fileContent)
+		if err != nil {
+			return err
+		}
+		err = storeObject(fileContent.PrevContent, fileContent, newFBEncKey, newFBMacKey)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -736,6 +785,19 @@ func getKeyPairFromBase(baseKey []byte) (encKey []byte, macKey []byte, err error
 		return nil, nil, err
 	}
 	return encKey[:16], macKey[:16], nil
+}
+
+/* Get encryption & MAC key for the ShareNode of a given recipient */
+func getChildKeyPairFromBase(baseKey []byte, recipientName string) (encKey []byte, macKey []byte, err error) {
+	childrenBaseKey, err := userlib.HashKDF(baseKey, []byte(recipientName))
+	if err != nil {
+		return nil, nil, err
+	}
+	encKey, macKey, err = getKeyPairFromBase(childrenBaseKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	return
 }
 
 /* Get next base key from current one */
