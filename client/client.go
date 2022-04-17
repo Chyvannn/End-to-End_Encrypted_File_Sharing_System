@@ -111,14 +111,16 @@ type User struct {
 	UserSignPrivateKey DSSignKey
 }
 
-/* The starting position for a file, save metadata for file */
-/* UUID of FileHeader is create by username + filename */
+/* The starting position for a file, save metadata for file
+ * UUID of FileHeader is create by username + filename */
 type FileHeader struct {
 	ShareId   UUID   // the ShareNode for a user
 	FHBaseKey []byte // protect direct ShareNode
 }
 
-/* A single node in the sharing tree, may have multiple owners */
+/* A single node in the sharing tree, may have multiple owners
+ * Root ShareNode UUID is generated randomly
+ * Sublevel ShareNode Id is generate from owner + direct recipient username */
 type ShareNode struct {
 	FileBodyId  UUID
 	ShareNodeId UUID
@@ -407,7 +409,11 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 	var recipientNode ShareNode
 	if senderNode.IsRoot {
 		// if the sender node is root, create a new ShareNode as recipient
-		recipientId := uuid.New()
+		tempString := fmt.Sprintf("%s_%s", userdata.Username, recipientUsername)
+		recipientId, err := getUUIDFromString([]byte(tempString))
+		if err != nil {
+			return uuid.Nil, err
+		}
 		recipientNode.ShareNodeId = recipientId
 		recipientNode.IsRoot = false // recipient node will not be a root
 		recipientNode.SNBaseKey = senderNode.SNBaseKey
@@ -516,6 +522,79 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 }
 
 func (userdata *User) RevokeAccess(filename string, recipientUsername string) error {
+	var ownerNode ShareNode
+	err := userdata.getShareNode(filename, &ownerNode)
+	if err != nil {
+		return err
+	}
+	if !ownerNode.IsRoot {
+		return errors.New("current user does not owns the file")
+	}
+	tempString := fmt.Sprintf("%s_%s", userdata.Username, recipientUsername)
+
+	recipientShareId, err := getUUIDFromString([]byte(tempString))
+	if err != nil {
+		return err
+	}
+	newFileBaseKey, err := getNextBaseKey(ownerNode.FileBaseKey)
+	if err != nil {
+		return err
+	}
+	oldFileEncKey, oldFileMacKey, err := getKeyPairFromBase(ownerNode.FileBaseKey)
+	if err != nil {
+		return err
+	}
+	newFileEncKey, newFileMacKey, err := getKeyPairFromBase(newFileBaseKey)
+	if err != nil {
+		return err
+	}
+	newSNBaseKey, err := getNextBaseKey(ownerNode.SNBaseKey)
+	if err != nil {
+		return err
+	}
+	oldSNEncKey, oldSNMacKey, err := getKeyPairFromBase(ownerNode.SNBaseKey)
+	if err != nil {
+		return err
+	}
+	newSNEncKey, newSNMacKey, err := getKeyPairFromBase(newSNBaseKey)
+	if err != nil {
+		return err
+	}
+
+	for i := 0; i < len(ownerNode.Children); i++ {
+		if ownerNode.Children[i] != recipientShareId {
+			var shareNode ShareNode
+			err = getObject(ownerNode.Children[i], oldSNEncKey, oldSNMacKey, &shareNode)
+			if err != nil {
+				return err
+			}
+			// update key pairs in remaining ShareNodes
+			shareNode.FileBaseKey = newFileBaseKey
+			shareNode.SNBaseKey = newSNBaseKey
+
+			// recypher ShareNode on DataStore
+			err = storeObject(ownerNode.Children[i], shareNode, newSNEncKey, newSNMacKey)
+			if err != nil {
+				return err
+			}
+		} else {
+			// Remove the recipient UUID from children and DataStore
+			userlib.DatastoreDelete(ownerNode.Children[i])
+			ownerNode.Children = append(ownerNode.Children[:i], ownerNode.Children[i+1:]...)
+		}
+	}
+	// Recypher FileBody
+	var fileBody FileBody
+	err = getObject(ownerNode.FileBodyId, oldFileEncKey, oldFileMacKey, &fileBody)
+	if err != nil {
+		return err
+	}
+	fileBody.FBBaseKey = newFileBaseKey
+	err = storeObject(ownerNode.FileBodyId, fileBody, newFileEncKey, newFileMacKey)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -659,10 +738,24 @@ func getKeyPairFromBase(baseKey []byte) (encKey []byte, macKey []byte, err error
 	return encKey[:16], macKey[:16], nil
 }
 
+/* Get next base key from current one */
 func getNextBaseKey(originalBaseKey []byte) (newBaseKey []byte, err error) {
 	newBaseKey, err = userlib.HashKDF(originalBaseKey[:16], []byte("Base_Key"))
 	if err != nil {
 		return nil, err
 	}
 	return newBaseKey[:16], nil
+}
+
+func recypherObject(dataId UUID, oldEncKey []byte, oldMacKey []byte, newEncKey []byte, newMacKey []byte) (err error) {
+	var object interface{}
+	err = getObject(dataId, oldEncKey, oldMacKey, object)
+	if err != nil {
+		return
+	}
+	err = storeObject(dataId, object, newEncKey, newMacKey)
+	if err != nil {
+		return
+	}
+	return
 }
