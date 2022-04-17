@@ -406,13 +406,13 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 	}
 	var recipientNode ShareNode
 	if senderNode.IsRoot {
-		// if the sender node is owner
-		// create a new ShareNode as recipient
+		// if the sender node is root, create a new ShareNode as recipient
 		recipientId := uuid.New()
 		recipientNode.ShareNodeId = recipientId
 		recipientNode.IsRoot = false // recipient node will not be a root
 		recipientNode.SNBaseKey = senderNode.SNBaseKey
 		recipientNode.FileBaseKey = senderNode.FileBaseKey // recipient will store its own enc/mac key
+		recipientNode.FileBodyId = senderNode.FileBodyId
 		senderNode.Children = append(senderNode.Children, recipientId)
 		senderNodeEncKey, senderNodeMacKey, err := getKeyPairFromBase(senderNode.SNBaseKey)
 		if err != nil {
@@ -423,6 +423,7 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 			return uuid.Nil, err
 		}
 	} else {
+		// if sender is not the root, use current ShareNode as recipient
 		recipientNode = senderNode
 	}
 
@@ -468,6 +469,8 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 	if !ok {
 		return errors.New("can not find the invitation in DataStore")
 	}
+	// Delete invitation after user get from DataStore
+	userlib.DatastoreDelete(invitationPtr)
 	var invitationData InvitationData
 	err := json.Unmarshal(invitationDataBytes, &invitationData)
 	if err != nil {
