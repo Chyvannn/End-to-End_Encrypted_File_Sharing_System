@@ -114,7 +114,8 @@ type User struct {
 /* The starting position for a file, save metadata for file
  * UUID of FileHeader is create by username + filename */
 type FileHeader struct {
-	ShareId   UUID   // the ShareNode for a user
+	ShareId UUID // the ShareNode for a user
+	//TODO: Derive SNBaseKey for each root ShareNode on fly using UserBaseKey + filename
 	FHBaseKey []byte // protect direct ShareNode
 }
 
@@ -124,7 +125,7 @@ type FileHeader struct {
 type ShareNode struct {
 	FileBodyId  UUID
 	ShareNodeId UUID
-	//TODO: Derive SNBaseKey for each children ShareNode on Fly using SNBaseKey + recipient name
+	//TODO: Derive SNBaseKey for each children ShareNode on fly using SNBaseKey + recipient name
 	SNBaseKey   []byte // Protect following ShareNode if is root, save keys of itself if not root
 	FileBaseKey []byte // Shared between users sharing the same file
 	IsRoot      bool   // Check if the current ShareNode is the root node
@@ -523,12 +524,24 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 }
 
 func (userdata *User) RevokeAccess(filename string, recipientUsername string) error {
-	// Get the owner ShareNode
-	var ownerNode ShareNode
-	err := userdata.getShareNode(filename, &ownerNode)
+	// Get the owner FileHeader, unchanged after revoke access
+	var ownerFileHeader FileHeader
+	err := userdata.getFileHeader(filename, &ownerFileHeader)
 	if err != nil {
 		return err
 	}
+	fileHeaderEncKey, fileHeaderMacKey, err := getKeyPairFromBase(ownerFileHeader.FHBaseKey)
+	if err != nil {
+		return err
+	}
+
+	// Get owner ShareNode, changed after revoke access
+	var ownerNode ShareNode
+	err = getObject(ownerFileHeader.ShareId, fileHeaderEncKey, fileHeaderMacKey, &ownerNode)
+	if err != nil {
+		return err
+	}
+
 	if !ownerNode.IsRoot {
 		return errors.New("current user does not own the file")
 	}
@@ -570,6 +583,11 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 		return err
 	}
 	ownerNode.SNBaseKey = newSNBaseKey
+
+	err = storeObject(ownerFileHeader.ShareId, ownerNode, fileHeaderEncKey, fileHeaderMacKey)
+	if err != nil {
+		return err
+	}
 
 	// childrenPosition := -1
 	for i := 0; i < len(ownerNode.Children); i++ {
@@ -711,15 +729,14 @@ func getObject(dataId UUID, encKey []byte, macKey []byte, object interface{}) (e
 	return
 }
 
-/* Get ShareNode from username and filename */
-func (userdata *User) getShareNode(filename string, shareNode interface{}) (err error) {
+/* Get Fileheader from username and filename */
+func (userdata *User) getFileHeader(filename string, fileHeader interface{}) (err error) {
 	tempString := fmt.Sprintf("%s_%s", userdata.Username, filename) // Get FileHeader UUID on fly
 	fhid, err := getUUIDFromString([]byte(tempString))
 	if err != nil {
 		return err
 	}
 	// Get FileHeader from DataStore
-	var fileHeader FileHeader
 	userEncKey, userMacKey, err := getKeyPairFromBase(userdata.UserBaseKey)
 	if err != nil {
 		return
@@ -728,7 +745,16 @@ func (userdata *User) getShareNode(filename string, shareNode interface{}) (err 
 	if err != nil {
 		return
 	}
+	return
+}
 
+/* Get ShareNode from username and filename */
+func (userdata *User) getShareNode(filename string, shareNode interface{}) (err error) {
+	var fileHeader FileHeader
+	err = userdata.getFileHeader(filename, &fileHeader)
+	if err != nil {
+		return
+	}
 	// Get ShareNode from DataStore
 	fileHeaderEncKey, fileHeaderMacKey, err := getKeyPairFromBase(fileHeader.FHBaseKey)
 	if err != nil {
@@ -789,7 +815,7 @@ func getKeyPairFromBase(baseKey []byte) (encKey []byte, macKey []byte, err error
 
 /* Get encryption & MAC key for the ShareNode of a given recipient */
 func getChildKeyPairFromBase(baseKey []byte, recipientName string) (encKey []byte, macKey []byte, err error) {
-	childrenBaseKey, err := userlib.HashKDF(baseKey, []byte(recipientName))
+	childrenBaseKey, err := userlib.HashKDF(baseKey[:16], []byte(recipientName))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -807,17 +833,4 @@ func getNextBaseKey(originalBaseKey []byte) (newBaseKey []byte, err error) {
 		return nil, err
 	}
 	return newBaseKey[:16], nil
-}
-
-func recypherObject(dataId UUID, oldEncKey []byte, oldMacKey []byte, newEncKey []byte, newMacKey []byte) (err error) {
-	var object interface{}
-	err = getObject(dataId, oldEncKey, oldMacKey, object)
-	if err != nil {
-		return
-	}
-	err = storeObject(dataId, object, newEncKey, newMacKey)
-	if err != nil {
-		return
-	}
-	return
 }
