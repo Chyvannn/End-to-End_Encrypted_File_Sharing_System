@@ -25,76 +25,6 @@ import (
 	_ "strconv"
 )
 
-// This serves two purposes: it shows you a few useful primitives,
-// and suppresses warnings for imports not being used. It can be
-// safely deleted!
-func someUsefulThings() {
-
-	// Creates a random UUID.
-	randomUUID := uuid.New()
-
-	// Prints the UUID as a string. %v prints the value in a default format.
-	// See https://pkg.go.dev/fmt#hdr-Printing for all Golang format string flags.
-	userlib.DebugMsg("Random UUID: %v", randomUUID.String())
-
-	// Creates a UUID deterministically, from a sequence of bytes.
-	hash := userlib.Hash([]byte("user-structs/alice"))
-	deterministicUUID, err := uuid.FromBytes(hash[:16])
-	if err != nil {
-		// Normally, we would `return err` here. But, since this function doesn't return anything,
-		// we can just panic to terminate execution. ALWAYS, ALWAYS, ALWAYS check for errors! Your
-		// code should have hundreds of "if err != nil { return err }" statements by the end of this
-		// project. You probably want to avoid using panic statements in your own code.
-		panic(errors.New("An error occurred while generating a UUID: " + err.Error()))
-	}
-	userlib.DebugMsg("Deterministic UUID: %v", deterministicUUID.String())
-
-	// Declares a Course struct type, creates an instance of it, and marshals it into JSON.
-	type Course struct {
-		name      string
-		professor []byte
-	}
-
-	course := Course{"CS 161", []byte("Nicholas Weaver")}
-	courseBytes, err := json.Marshal(course)
-	if err != nil {
-		panic(err)
-	}
-
-	userlib.DebugMsg("Struct: %v", course)
-	userlib.DebugMsg("JSON Data: %v", courseBytes)
-
-	// Generate a random private/public keypair.
-	// The "_" indicates that we don't check for the error case here.
-	var pk userlib.PKEEncKey
-	var sk userlib.PKEDecKey
-	pk, sk, _ = userlib.PKEKeyGen()
-	userlib.DebugMsg("PKE Key Pair: (%v, %v)", pk, sk)
-
-	// Here's an example of how to use HBKDF to generate a new key from an input key.
-	// Tip: generate a new key everywhere you possibly can! It's easier to generate new keys on the fly
-	// instead of trying to think about all of the ways a key reuse attack could be performed. It's also easier to
-	// store one key and derive multiple keys from that one key, rather than
-	originalKey := userlib.RandomBytes(16)
-	derivedKey, err := userlib.HashKDF(originalKey, []byte("mac-key"))
-	if err != nil {
-		panic(err)
-	}
-	userlib.DebugMsg("Original Key: %v", originalKey)
-	userlib.DebugMsg("Derived Key: %v", derivedKey)
-
-	// A couple of tips on converting between string and []byte:
-	// To convert from string to []byte, use []byte("some-string-here")
-	// To convert from []byte to string for debugging, use fmt.Sprintf("hello world: %s", some_byte_arr).
-	// To convert from []byte to string for use in a hashmap, use hex.EncodeToString(some_byte_arr).
-	// When frequently converting between []byte and string, just marshal and unmarshal the data.
-	//
-	// Read more: https://go.dev/blog/strings
-
-	// Here's an example of string interpolation!
-	_ = fmt.Sprintf("%s_%d", "file", 1)
-}
-
 type UUID = userlib.UUID
 type PKEEncKey = userlib.PKEEncKey
 type PKEDecKey = userlib.PKEDecKey
@@ -128,7 +58,8 @@ type ShareNode struct {
 	SNBaseKey   []byte // Protect following ShareNode if is root, save keys of itself if not root
 	FileBaseKey []byte // Shared between users sharing the same file
 	IsRoot      bool   // Check if the current ShareNode is the root node
-	Children    []UUID // Children list for the root ShareNode
+	//TODO: Maybe change to store the username of the direct children node
+	Children []UUID // Children list for the root ShareNode
 }
 
 type FileBody struct {
