@@ -51,12 +51,12 @@ var _ = Describe("Client Tests", func() {
 	var alice *client.User
 	var bob *client.User
 	var charles *client.User
-	// var doris *client.User
-	// var eve *client.User
-	// var frank *client.User
-	// var grace *client.User
-	// var horace *client.User
-	// var ira *client.User
+	var doris *client.User
+	var eve *client.User
+	var frank *client.User
+	var grace *client.User
+	var horace *client.User
+	var ira *client.User
 
 	// These declarations may be useful for multi-session testing.
 	var alicePhone *client.User
@@ -73,12 +73,12 @@ var _ = Describe("Client Tests", func() {
 	bobFile2 := "bobFile2.txt"
 	charlesFile := "charlesFile.txt"
 	sameNameFile := "sameNameFile.txt"
-	// dorisFile := "dorisFile.txt"
-	// eveFile := "eveFile.txt"
-	// frankFile := "frankFile.txt"
-	// graceFile := "graceFile.txt"
-	// horaceFile := "horaceFile.txt"
-	// iraFile := "iraFile.txt"
+	dorisFile := "dorisFile.txt"
+	eveFile := "eveFile.txt"
+	frankFile := "frankFile.txt"
+	graceFile := "graceFile.txt"
+	horaceFile := "horaceFile.txt"
+	iraFile := "iraFile.txt"
 
 	BeforeEach(func() {
 		// This runs before each test within this Describe block (including nested tests).
@@ -459,6 +459,101 @@ var _ = Describe("Client Tests", func() {
 			bandWidth_10000 := afterAppend_10000 - beforeAppend_10000
 			lowBandWidth := bandWidth_10000 < 10000
 			Expect(lowBandWidth).To(BeTrue())
+		})
+
+		Specify("Efficiency Test: Testing Key number does not depend on Append Number.", func() {
+			alice, err = client.InitUser("alice", emptyString)
+			Expect(err).To(BeNil())
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			err = alice.AppendToFile(aliceFile, []byte(contentTwo))
+			Expect(err).To(BeNil())
+
+			dataMap := userlib.KeystoreGetMap()
+			sizeBeforeAppend := len(dataMap)
+
+			for i := 0; i < 10000; i++ {
+				err = alice.AppendToFile(aliceFile, []byte(contentTwo))
+				Expect(err).To(BeNil())
+			}
+
+			dataMap = userlib.KeystoreGetMap()
+			sizeAfterAppend := len(dataMap)
+			sizeEqual := sizeBeforeAppend == sizeAfterAppend
+			Expect(sizeEqual).To(BeTrue())
+		})
+
+		Specify("Efficiency Test: Testing Key number does not depend on Share Number.", func() {
+			alice, err = client.InitUser("alice", emptyString)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", emptyString)
+			Expect(err).To(BeNil())
+			charles, err = client.InitUser("charles", emptyString)
+			Expect(err).To(BeNil())
+			doris, err = client.InitUser("doris", emptyString)
+			Expect(err).To(BeNil())
+			eve, err = client.InitUser("eve", emptyString)
+			Expect(err).To(BeNil())
+			frank, err = client.InitUser("frank", emptyString)
+			Expect(err).To(BeNil())
+			grace, err = client.InitUser("grace", emptyString)
+			Expect(err).To(BeNil())
+			horace, err = client.InitUser("horace", emptyString)
+			Expect(err).To(BeNil())
+			ira, err = client.InitUser("ira", emptyString)
+			Expect(err).To(BeNil())
+
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			dataMap := userlib.KeystoreGetMap()
+			sizeBeforeShare := len(dataMap)
+
+			invitation, err := alice.CreateInvitation(aliceFile, "bob")
+			Expect(err).To(BeNil())
+			err = bob.AcceptInvitation("alice", invitation, bobFile)
+			Expect(err).To(BeNil())
+
+			invitation, err = alice.CreateInvitation(aliceFile, "charles")
+			Expect(err).To(BeNil())
+			err = charles.AcceptInvitation("alice", invitation, charlesFile)
+			Expect(err).To(BeNil())
+
+			invitation, err = bob.CreateInvitation(bobFile, "doris")
+			Expect(err).To(BeNil())
+			err = doris.AcceptInvitation("bob", invitation, dorisFile)
+			Expect(err).To(BeNil())
+
+			invitation, err = doris.CreateInvitation(dorisFile, "ira")
+			Expect(err).To(BeNil())
+			err = ira.AcceptInvitation("doris", invitation, iraFile)
+			Expect(err).To(BeNil())
+
+			invitation, err = doris.CreateInvitation(dorisFile, "eve")
+			Expect(err).To(BeNil())
+			err = eve.AcceptInvitation("doris", invitation, eveFile)
+			Expect(err).To(BeNil())
+
+			invitation, err = doris.CreateInvitation(dorisFile, "frank")
+			Expect(err).To(BeNil())
+			err = frank.AcceptInvitation("doris", invitation, frankFile)
+			Expect(err).To(BeNil())
+
+			invitation, err = frank.CreateInvitation(frankFile, "grace")
+			Expect(err).To(BeNil())
+			err = grace.AcceptInvitation("frank", invitation, graceFile)
+			Expect(err).To(BeNil())
+
+			invitation, err = grace.CreateInvitation(graceFile, "horace")
+			Expect(err).To(BeNil())
+			err = horace.AcceptInvitation("grace", invitation, horaceFile)
+			Expect(err).To(BeNil())
+
+			dataMap = userlib.KeystoreGetMap()
+			sizeAfterShare := len(dataMap)
+			sizeEqual := sizeBeforeShare == sizeAfterShare
+			Expect(sizeEqual).To(BeTrue())
 		})
 	})
 
