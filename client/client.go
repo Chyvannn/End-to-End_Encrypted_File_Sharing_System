@@ -59,7 +59,8 @@ type ShareNode struct {
 	FileBaseKey []byte // Shared between users sharing the same file
 	IsRoot      bool   // Check if the current ShareNode is the root node
 	//TODO: Maybe change to store the username of the direct children node
-	Children []UUID // Children list for the root ShareNode
+	// Children     []UUID   // Children list for the root ShareNode
+	ChildrenName []string // Children's name list for the root ShareNode
 }
 
 type FileBody struct {
@@ -88,8 +89,6 @@ type InvitationData struct {
 	CypherText []byte // RSA Encrypted Invitation data
 	Signature  []byte
 }
-
-// NOTE: The following methods have toy (insecure!) implementations.
 
 func InitUser(username string, password string) (userdataptr *User, err error) {
 	if len(username) == 0 {
@@ -213,10 +212,10 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 	}
 	shareNode.FileBaseKey = fileBaseKey
 	shareNode.IsRoot = true // the shareNode created by StoreFile will always be the root
-	shareNode.Children = nil
+	shareNode.ChildrenName = nil
 	fbid := uuid.New() // generate FileBody UUID
 	shareNode.FileBodyId = fbid
-	// Direct ShareNode is protected by the fileHeader key pairs
+	// Direct ShareNode is protected by the FileHeader key pairs
 	fileHeaderEncKey, fileHeaderMacKey, err := getKeyPairFromBase(fileHeaderBaseKey)
 	if err != nil {
 		return
@@ -341,18 +340,22 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 	var recipientNode ShareNode
 	if senderNode.IsRoot {
 		// if the sender node is root, create a new ShareNode as recipient
-		tempString := fmt.Sprintf("%s_%s", userdata.Username, recipientUsername)
+		tempString := fmt.Sprintf("%s_%s_%s", userdata.Username, recipientUsername, filename)
 		recipientId, err := getUUIDFromString([]byte(tempString))
 		if err != nil {
 			return uuid.Nil, err
 		}
 		recipientNode.ShareNodeId = recipientId
-		recipientNode.IsRoot = false // recipient node will not be a root
-		recipientNode.SNBaseKey = senderNode.SNBaseKey
-		recipientNode.FileBaseKey = senderNode.FileBaseKey // recipient will store its own enc/mac key
-		recipientNode.FileBodyId = senderNode.FileBodyId
-		senderNode.Children = append(senderNode.Children, recipientId)
-		senderNodeEncKey, senderNodeMacKey, err := getKeyPairFromBase(senderNode.SNBaseKey)
+		recipientNode.IsRoot = false                       // recipient node will not be a root
+		recipientNode.FileBaseKey = senderNode.FileBaseKey // recipient shares the same FileKey with sender
+		recipientNode.FileBodyId = senderNode.FileBodyId   // recipient shares the same FileBody with sender
+		senderNode.ChildrenName = append(senderNode.ChildrenName, recipientUsername)
+		childBaseKey, err := getChildBaseKey(senderNode.SNBaseKey, recipientUsername)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		recipientNode.SNBaseKey = childBaseKey
+		senderNodeEncKey, senderNodeMacKey, err := getKeyPairFromBase(childBaseKey)
 		if err != nil {
 			return uuid.Nil, err
 		}
@@ -388,6 +391,7 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 	if err != nil {
 		return uuid.Nil, err
 	}
+
 	// Create InvitationDate to actually store in DataStore
 	var invitationData InvitationData
 	invitationDataId := uuid.New()
@@ -477,7 +481,7 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	}
 
 	// Get UUID of the recipient ShareNode
-	tempString := fmt.Sprintf("%s_%s", userdata.Username, recipientUsername)
+	tempString := fmt.Sprintf("%s_%s_%s", userdata.Username, recipientUsername, filename)
 	recipientShareId, err := getUUIDFromString([]byte(tempString))
 	if err != nil {
 		return err
@@ -504,41 +508,45 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	}
 	ownerNode.FileBaseKey = newFileBaseKey
 
-	oldSNEncKey, oldSNMacKey, err := getKeyPairFromBase(ownerNode.SNBaseKey)
-	if err != nil {
-		return err
-	}
-	newSNEncKey, newSNMacKey, err := getKeyPairFromBase(newSNBaseKey)
-	if err != nil {
-		return err
-	}
-	ownerNode.SNBaseKey = newSNBaseKey
-
 	err = storeObject(ownerFileHeader.ShareId, ownerNode, fileHeaderEncKey, fileHeaderMacKey)
 	if err != nil {
 		return err
 	}
 
-	// childrenPosition := -1
-	for i := 0; i < len(ownerNode.Children); i++ {
-		if ownerNode.Children[i] != recipientShareId {
+	for i := 0; i < len(ownerNode.ChildrenName); i++ {
+		if ownerNode.ChildrenName[i] != recipientUsername {
 			var shareNode ShareNode
-			err = getObject(ownerNode.Children[i], oldSNEncKey, oldSNMacKey, &shareNode)
+			// Get old child base key and then enc & mac key
+			oldChildBaseKey, err := getChildBaseKey(ownerNode.SNBaseKey, ownerNode.ChildrenName[i])
+			if err != nil {
+				return err
+			}
+			oldSNEncKey, oldSNMacKey, err := getKeyPairFromBase(oldChildBaseKey)
+			if err != nil {
+				return err
+			}
+			err = getObject(recipientShareId, oldSNEncKey, oldSNMacKey, &shareNode)
 			if err != nil {
 				return err
 			}
 			// Update key pairs in remaining ShareNodes
 			shareNode.FileBaseKey = newFileBaseKey
-			shareNode.SNBaseKey = newSNBaseKey
-
+			newChildBaseKey, err := getChildBaseKey(newSNBaseKey, ownerNode.ChildrenName[i])
+			if err != nil {
+				return err
+			}
+			newSNEncKey, newSNMacKey, err := getKeyPairFromBase(newChildBaseKey)
+			if err != nil {
+				return err
+			}
 			// Recypher ShareNode on DataStore
-			err = storeObject(ownerNode.Children[i], shareNode, newSNEncKey, newSNMacKey)
+			err = storeObject(recipientShareId, shareNode, newSNEncKey, newSNMacKey)
 			if err != nil {
 				return err
 			}
 		} else {
-			// Zero out the recipient UUID
-			ownerNode.Children[i] = uuid.Nil
+			// Zero out the child name in owner's list
+			ownerNode.ChildrenName[i] = ""
 		}
 	}
 
@@ -753,16 +761,12 @@ func getKeyPairFromBase(baseKey []byte) (encKey []byte, macKey []byte, err error
 }
 
 /* Get encryption & MAC key for the ShareNode of a given recipient */
-func getChildKeyPairFromBase(baseKey []byte, recipientName string) (encKey []byte, macKey []byte, err error) {
-	childrenBaseKey, err := userlib.HashKDF(baseKey[:16], []byte(recipientName))
+func getChildBaseKey(baseKey []byte, recipientName string) (childBaseKey []byte, err error) {
+	childBaseKey, err = userlib.HashKDF(baseKey, []byte(recipientName))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	encKey, macKey, err = getKeyPairFromBase(childrenBaseKey)
-	if err != nil {
-		return nil, nil, err
-	}
-	return
+	return childBaseKey[:16], nil
 }
 
 /* Get next base key from current one */
