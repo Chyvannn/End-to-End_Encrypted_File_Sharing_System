@@ -87,12 +87,6 @@ var _ = Describe("Client Tests", func() {
 	})
 
 	Describe("Basic Tests", func() {
-		Specify("Basic Test: empty username for InitUser.", func() {
-			userlib.DebugMsg("Initializing user with empty username")
-			_, err = client.InitUser(emptyString, defaultPassword)
-			Expect(err).ToNot(BeNil())
-		})
-
 		Specify("Basic Test: Testing InitUser/GetUser on a single user.", func() {
 			userlib.DebugMsg("Initializing user Alice.")
 			alice, err = client.InitUser("alice", defaultPassword)
@@ -101,59 +95,6 @@ var _ = Describe("Client Tests", func() {
 			userlib.DebugMsg("Getting user Alice.")
 			aliceLaptop, err = client.GetUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
-		})
-
-		Specify("Basic Test: Testing get user with wrong password.", func() {
-			userlib.DebugMsg("Initializing user Alice.")
-			alice, err = client.InitUser("alice", defaultPassword)
-			Expect(err).To(BeNil())
-
-			userlib.DebugMsg("Getting user Alice but with wrong password.")
-			aliceDesktop, err = client.GetUser("alice", wrongPassword)
-			Expect(err).ToNot(BeNil())
-		})
-
-		Specify("Basic Test: Testing duplicate initialization.", func() {
-			userlib.DebugMsg("Initializing user Alice.")
-			alice, err = client.InitUser("alice", defaultPassword)
-			Expect(err).To(BeNil())
-
-			userlib.DebugMsg("Initializing user Alice again.")
-			aliceDesktop, err = client.InitUser("alice", defaultPassword)
-			Expect(err).ToNot(BeNil())
-		})
-
-		Specify("Basic Test: Testing multiple user instances.", func() {
-			userlib.DebugMsg("Initializing user Alice.")
-			alice, err = client.InitUser("alice", defaultPassword)
-			Expect(err).To(BeNil())
-
-			userlib.DebugMsg("Getting user Alice As aliceDesktop.")
-			aliceDesktop, err = client.GetUser("alice", defaultPassword)
-			Expect(err).To(BeNil())
-
-			userlib.DebugMsg("Getting user Alice as aliceLaptop.")
-			aliceLaptop, err = client.GetUser("alice", defaultPassword)
-			Expect(err).To(BeNil())
-
-			userlib.DebugMsg("Get user Alice as alicePhone.")
-			alicePhone, err = client.GetUser("alice", defaultPassword)
-			Expect(err).To(BeNil())
-		})
-
-		Specify("Basic Test: Testing Single User Store/Load of single file.", func() {
-			userlib.DebugMsg("Initializing user Alice.")
-			alice, err = client.InitUser("alice", defaultPassword)
-			Expect(err).To(BeNil())
-
-			userlib.DebugMsg("Storing single file data: %s", contentOne)
-			err = alice.StoreFile(aliceFile, []byte(contentOne))
-			Expect(err).To(BeNil())
-
-			userlib.DebugMsg("Loading single file...")
-			data, err := alice.LoadFile(aliceFile)
-			Expect(err).To(BeNil())
-			Expect(data).To(Equal([]byte(contentOne)))
 		})
 
 		Specify("Basic Test: Testing Single User Store/Load/Append.", func() {
@@ -320,6 +261,12 @@ var _ = Describe("Client Tests", func() {
 	})
 
 	Describe("Init/GetUser Tests", func() {
+		Specify("Basic Test: empty username for InitUser.", func() {
+			userlib.DebugMsg("Initializing user with empty username")
+			_, err = client.InitUser(emptyString, defaultPassword)
+			Expect(err).ToNot(BeNil())
+		})
+
 		Specify("Init/GetUser Test: Testing User with 0 length password", func() {
 			userlib.DebugMsg("Initializing user Alice.")
 			alice, err = client.InitUser("alice", emptyString)
@@ -329,10 +276,48 @@ var _ = Describe("Client Tests", func() {
 			aliceLaptop, err = client.GetUser("alice", emptyString)
 			Expect(err).To(BeNil())
 		})
+
+		Specify("Basic Test: Testing multiple user instances.", func() {
+			userlib.DebugMsg("Initializing user Alice.")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Getting user Alice As aliceDesktop.")
+			aliceDesktop, err = client.GetUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Getting user Alice as aliceLaptop.")
+			aliceLaptop, err = client.GetUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Get user Alice as alicePhone.")
+			alicePhone, err = client.GetUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+		})
+
+		Specify("Basic Test: Testing get user with wrong password.", func() {
+			userlib.DebugMsg("Initializing user Alice.")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Getting user Alice but with wrong password.")
+			aliceDesktop, err = client.GetUser("alice", wrongPassword)
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Basic Test: Testing duplicate initialization.", func() {
+			userlib.DebugMsg("Initializing user Alice.")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Initializing user Alice again.")
+			aliceDesktop, err = client.InitUser("alice", defaultPassword)
+			Expect(err).ToNot(BeNil())
+		})
 	})
 
-	Describe("Store/LoadFile Tests", func() {
-		Specify("Store/LoadFile Test: Testing Empty file", func() {
+	Describe("Store/Load/AppendToFile Tests", func() {
+		Specify("Store/Load/AppendToFile: Testing Empty file", func() {
 			userlib.DebugMsg("Initializing user Alice.")
 			alice, err = client.InitUser("alice", emptyString)
 			Expect(err).To(BeNil())
@@ -344,10 +329,25 @@ var _ = Describe("Client Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(data).To(Equal([]byte(emptyString)))
 		})
+
+		Specify("Basic Test: Testing Single User Store/Load of single file.", func() {
+			userlib.DebugMsg("Initializing user Alice.")
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Storing single file data: %s", contentOne)
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			userlib.DebugMsg("Loading single file...")
+			data, err := alice.LoadFile(aliceFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentOne)))
+		})
 	})
 
-	Describe("Sharing Tests", func() {
-		Specify("Sharing Test: Testing different user instance can accept invitation", func() {
+	Describe("Create/AcceptInvitation Tests", func() {
+		Specify("Create/AcceptInvitation Test: Testing different user instance can accept invitation", func() {
 			userlib.DebugMsg("Initializing user Alice, Bob.")
 			alice, err = client.InitUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
