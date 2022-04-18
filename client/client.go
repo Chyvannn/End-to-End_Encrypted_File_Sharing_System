@@ -396,7 +396,6 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 	if err != nil {
 		return uuid.Nil, err
 	}
-	// invitationDataId := uuid.New()
 	invitationData.CypherText = cypherInvitation
 	invitationData.Signature = signature
 	invitationDataBytes, err := json.Marshal(invitationData)
