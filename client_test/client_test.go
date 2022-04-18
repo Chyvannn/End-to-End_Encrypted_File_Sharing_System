@@ -441,6 +441,66 @@ var _ = Describe("Client Tests", func() {
 	})
 
 	Describe("Create/AcceptInvitation Tests", func() {
+		Specify("Create/AcceptInvitation Test: Testing filename does not exist.", func() {
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			_, err := alice.CreateInvitation(nonExistFile, "bob")
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Create/AcceptInvitation Test: Testing recipient does not exist.", func() {
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			_, err := alice.CreateInvitation(aliceFile, "Nobody")
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Create/AcceptInvitation Test: Testing malicious action on CreateInvitation.", func() {
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			userlib.DatastoreClear()
+
+			_, err := alice.CreateInvitation(aliceFile, "bob")
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Create/AcceptInvitation Test: Testing AcceptInvitation with existing filename.", func() {
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			err = bob.StoreFile(bobFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			invitation, err := alice.CreateInvitation(aliceFile, "bob")
+			Expect(err).To(BeNil())
+
+			err = bob.AcceptInvitation("alice", invitation, bobFile)
+			Expect(err).ToNot(BeNil())
+		})
+
 		Specify("Create/AcceptInvitation Test: Testing different user instance can accept invitation", func() {
 			alice, err = client.InitUser("alice", defaultPassword)
 			Expect(err).To(BeNil())

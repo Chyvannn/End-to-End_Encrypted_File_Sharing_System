@@ -406,7 +406,16 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 }
 
 func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid.UUID, filename string) error {
-	// return nil
+	tempString := fmt.Sprintf("%s_%s", userdata.Username, filename) // Get FileHeader UUID on fly
+	fhid, err := getUUIDFromString([]byte(tempString))
+	if err != nil {
+		return err
+	}
+	_, ok := userlib.DatastoreGet(fhid)
+	if ok {
+		return errors.New("filename already exist in current userspace")
+	}
+
 	invitationDataBytes, ok := userlib.DatastoreGet(invitationPtr)
 	if !ok {
 		return errors.New("can not find the invitation in DataStore")
@@ -414,7 +423,7 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 	// Delete invitation after user get from DataStore
 	userlib.DatastoreDelete(invitationPtr)
 	var invitationData InvitationData
-	err := json.Unmarshal(invitationDataBytes, &invitationData)
+	err = json.Unmarshal(invitationDataBytes, &invitationData)
 	if err != nil {
 		return err
 	}
@@ -439,8 +448,6 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 		return err
 	}
 	var fileHeader FileHeader
-	tempString := fmt.Sprintf("%s_%s", userdata.Username, filename) // Get FileHeader UUID on fly
-	fhid, err := getUUIDFromString([]byte(tempString))
 	if err != nil {
 		return err
 	}
