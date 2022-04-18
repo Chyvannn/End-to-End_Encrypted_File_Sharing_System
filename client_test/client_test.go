@@ -501,7 +501,7 @@ var _ = Describe("Client Tests", func() {
 			Expect(err).ToNot(BeNil())
 		})
 
-		Specify("Create/AcceptInvitation Test: Testing different user instance can accept invitation", func() {
+		Specify("Create/AcceptInvitation Test: Testing different user instance can accept invitation.", func() {
 			alice, err = client.InitUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
 			bob, err = client.InitUser("bob", defaultPassword)
@@ -524,7 +524,7 @@ var _ = Describe("Client Tests", func() {
 	})
 
 	Describe("Revoke Tests", func() {
-		Specify("Revoke Test: Testing Alice share with bob", func() {
+		Specify("Revoke Test: Testing Alice share with bob.", func() {
 			alice, err = client.InitUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
 			bob, err = client.InitUser("bob", defaultPassword)
@@ -543,7 +543,7 @@ var _ = Describe("Client Tests", func() {
 
 		})
 
-		Specify("Rovoke Test: Testing Alice revoke access from Bob, and Bob want to accept invitation again", func() {
+		Specify("Revoke Test: Testing Alice revoke access from Bob, and Bob want to accept invitation again.", func() {
 			alice, err = client.InitUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
 			bob, err = client.InitUser("bob", defaultPassword)
@@ -577,5 +577,67 @@ var _ = Describe("Client Tests", func() {
 			Expect(err).ToNot(BeNil())
 		})
 
+		Specify("Revoke Test: Testing filename does not exist in sender namespace.", func() {
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+			alice.StoreFile(aliceFile, []byte(contentOne))
+
+			invite, err := alice.CreateInvitation(aliceFile, "bob")
+			Expect(err).To(BeNil())
+			err = bob.AcceptInvitation("alice", invite, bobFile)
+			Expect(err).To(BeNil())
+
+			err = alice.RevokeAccess(nonExistFile, "bob")
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Revoke Test: Testing filename not currently shared.", func() {
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+			alice.StoreFile(aliceFile, []byte(contentOne))
+
+			err = alice.RevokeAccess(aliceFile, "bob")
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Revoke Test: Testing invitation not accepted before revoke.", func() {
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+			alice.StoreFile(aliceFile, []byte(contentOne))
+
+			invite, err := alice.CreateInvitation(aliceFile, "bob")
+			Expect(err).To(BeNil())
+
+			err = alice.RevokeAccess(aliceFile, "bob")
+			Expect(err).To(BeNil())
+
+			err = bob.AcceptInvitation("alice", invite, bobFile)
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Revoke Test: Testing malicious revoke.", func() {
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+			alice.StoreFile(aliceFile, []byte(contentOne))
+
+			invite, err := alice.CreateInvitation(aliceFile, "bob")
+			Expect(err).To(BeNil())
+
+			err = bob.AcceptInvitation("alice", invite, bobFile)
+			Expect(err).To(BeNil())
+
+			userlib.DatastoreClear()
+
+			err = alice.RevokeAccess(aliceFile, "bob")
+			Expect(err).ToNot(BeNil())
+		})
 	})
 })

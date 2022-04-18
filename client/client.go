@@ -394,7 +394,12 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 
 	// Create InvitationDate to actually store in DataStore
 	var invitationData InvitationData
-	invitationDataId := uuid.New()
+	tempString := fmt.Sprintf("Invitation: %s_%s_%s", userdata.Username, filename, recipientUsername)
+	invitationDataId, err := getUUIDFromString([]byte(tempString))
+	if err != nil {
+		return uuid.Nil, err
+	}
+	// invitationDataId := uuid.New()
 	invitationData.CypherText = cypherInvitation
 	invitationData.Signature = signature
 	invitationDataBytes, err := json.Marshal(invitationData)
@@ -492,6 +497,28 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	recipientShareId, err := getUUIDFromString([]byte(tempString))
 	if err != nil {
 		return err
+	}
+	_, ok := userlib.DatastoreGet(recipientShareId)
+	if !ok {
+		return errors.New("the current filename is not shared")
+	}
+
+	// Check if the invitation is already accepted
+	tempString = fmt.Sprintf("Invitation: %s_%s_%s", userdata.Username, filename, recipientUsername)
+	invitationDataId, err := getUUIDFromString([]byte(tempString))
+	if err != nil {
+		return err
+	}
+	_, ok = userlib.DatastoreGet(invitationDataId)
+	if ok {
+		userlib.DatastoreDelete(invitationDataId)
+		for i := 0; i < len(ownerNode.ChildrenName); i++ {
+			if ownerNode.ChildrenName[i] == recipientUsername {
+				ownerNode.ChildrenName[i] = ""
+				userlib.DatastoreDelete(recipientShareId)
+				return nil
+			}
+		}
 	}
 
 	// Derive new FileBaseKey and SNBaseKey from the old ones
