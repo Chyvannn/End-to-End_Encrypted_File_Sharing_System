@@ -72,6 +72,7 @@ var _ = Describe("Client Tests", func() {
 	bobFile := "bobFile.txt"
 	bobFile2 := "bobFile2.txt"
 	charlesFile := "charlesFile.txt"
+	sameNameFile := "sameNameFile.txt"
 	// dorisFile := "dorisFile.txt"
 	// eveFile := "eveFile.txt"
 	// frankFile := "frankFile.txt"
@@ -337,6 +338,27 @@ var _ = Describe("Client Tests", func() {
 	})
 
 	Describe("Store/Load/AppendToFile Tests", func() {
+		Specify("Store/Load/AppendToFile Tests: Same filename in different userspace", func() {
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+
+			err = alice.StoreFile(sameNameFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			err = bob.StoreFile(sameNameFile, []byte(contentTwo))
+			Expect(err).To(BeNil())
+
+			data, err := alice.LoadFile(sameNameFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentOne)))
+
+			data, err = bob.LoadFile(sameNameFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentTwo)))
+		})
+
 		Specify("Store/Load/AppendToFile: Testing Empty file", func() {
 			alice, err = client.InitUser("alice", emptyString)
 			Expect(err).To(BeNil())
