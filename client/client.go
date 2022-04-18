@@ -52,14 +52,11 @@ type FileHeader struct {
  * Root ShareNode UUID is generated randomly
  * Sublevel ShareNode Id is generate from owner + direct recipient username */
 type ShareNode struct {
-	FileBodyId  UUID
-	ShareNodeId UUID
-	//TODO: Derive SNBaseKey for each children ShareNode on fly using SNBaseKey + recipient name
-	SNBaseKey   []byte // Protect following ShareNode if is root, save keys of itself if not root
-	FileBaseKey []byte // Shared between users sharing the same file
-	IsRoot      bool   // Check if the current ShareNode is the root node
-	//TODO: Maybe change to store the username of the direct children node
-	// Children     []UUID   // Children list for the root ShareNode
+	FileBodyId   UUID
+	ShareNodeId  UUID
+	SNBaseKey    []byte   // Protect following ShareNode if is root, save keys of itself if not root
+	FileBaseKey  []byte   // Shared between users sharing the same file
+	IsRoot       bool     // Check if the current ShareNode is the root node
 	ChildrenName []string // Children's name list for the root ShareNode
 }
 
