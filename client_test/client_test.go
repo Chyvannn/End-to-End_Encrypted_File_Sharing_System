@@ -360,7 +360,7 @@ var _ = Describe("Client Tests", func() {
 			Expect(data).To(Equal([]byte(contentOne)))
 		})
 
-		Specify("Store/Load/AppendToFile Test: Test overwriting file.", func() {
+		Specify("Store/Load/AppendToFile Test: Testing overwriting file.", func() {
 			alice, err = client.InitUser("alice", emptyString)
 			Expect(err).To(BeNil())
 			err = alice.StoreFile(aliceFile, []byte(contentOne))
@@ -372,6 +372,17 @@ var _ = Describe("Client Tests", func() {
 			data, err := alice.LoadFile(aliceFile)
 			Expect(err).To(BeNil())
 			Expect(data).To(Equal([]byte(contentTwo)))
+		})
+
+		Specify("Store/Load/AppendToFile Test: Testing integrity on file", func() {
+			alice, err = client.InitUser("alice", emptyString)
+			Expect(err).To(BeNil())
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			userlib.DatastoreClear()
+			_, err := alice.LoadFile(aliceFile)
+			Expect(err).ToNot(BeNil())
 		})
 	})
 
