@@ -547,6 +547,7 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 		} else {
 			// Zero out the child name in owner's list
 			ownerNode.ChildrenName[i] = ""
+			userlib.DatastoreDelete(recipientShareId)
 		}
 	}
 
