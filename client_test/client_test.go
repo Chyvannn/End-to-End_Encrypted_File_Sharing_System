@@ -418,6 +418,28 @@ var _ = Describe("Client Tests", func() {
 		})
 	})
 
+	Describe("Efficiency Tests", func() {
+		Specify("Efficiency Test: Testing AppendToFile efficiency.", func() {
+			alice, err = client.InitUser("alice", emptyString)
+			Expect(err).To(BeNil())
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			for i := 0; i < 10000; i++ {
+				err = alice.AppendToFile(aliceFile, []byte(contentTwo))
+				Expect(err).To(BeNil())
+			}
+			beforeAppend_10000 := userlib.DatastoreGetBandwidth()
+			err = alice.AppendToFile(aliceFile, []byte(contentTwo))
+			Expect(err).To(BeNil())
+			afterAppend_10000 := userlib.DatastoreGetBandwidth()
+
+			bandWidth_10000 := afterAppend_10000 - beforeAppend_10000
+			lowBandWidth := bandWidth_10000 < 10000
+			Expect(lowBandWidth).To(BeTrue())
+		})
+	})
+
 	Describe("Create/AcceptInvitation Tests", func() {
 		Specify("Create/AcceptInvitation Test: Testing different user instance can accept invitation", func() {
 			alice, err = client.InitUser("alice", defaultPassword)
