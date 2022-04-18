@@ -274,7 +274,7 @@ var _ = Describe("Client Tests", func() {
 			Expect(err).To(BeNil())
 		})
 
-		Specify("Init/GetUser Testt: Testing multiple user instances.", func() {
+		Specify("Init/GetUser Test: Testing multiple user instances.", func() {
 			alice, err = client.InitUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
 
@@ -317,7 +317,20 @@ var _ = Describe("Client Tests", func() {
 				userlib.DatastoreSet(key, elem)
 			}
 
+			aliceLaptop, err = client.GetUser("alice", defaultPassword)
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Init/GetUser Test: Testing GetUser after malicious action.", func() {
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+			// GetUser success before attempting DataStore
 			alicePhone, err = client.GetUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			userlib.DatastoreClear()
+
+			aliceLaptop, err = client.GetUser("alice", defaultPassword)
 			Expect(err).ToNot(BeNil())
 		})
 	})
@@ -327,14 +340,15 @@ var _ = Describe("Client Tests", func() {
 			alice, err = client.InitUser("alice", emptyString)
 			Expect(err).To(BeNil())
 
-			alice.StoreFile(aliceFile, []byte(emptyString))
+			err = alice.StoreFile(aliceFile, []byte(emptyString))
+			Expect(err).To(BeNil())
 
 			data, err := alice.LoadFile(aliceFile)
 			Expect(err).To(BeNil())
 			Expect(data).To(Equal([]byte(emptyString)))
 		})
 
-		Specify("Basic Test: Testing Single User Store/Load of single file.", func() {
+		Specify("Store/Load/AppendToFile Test: Testing Single User Store/Load of single file.", func() {
 			alice, err = client.InitUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
 
@@ -344,6 +358,20 @@ var _ = Describe("Client Tests", func() {
 			data, err := alice.LoadFile(aliceFile)
 			Expect(err).To(BeNil())
 			Expect(data).To(Equal([]byte(contentOne)))
+		})
+
+		Specify("Store/Load/AppendToFile Test: Test overwriting file.", func() {
+			alice, err = client.InitUser("alice", emptyString)
+			Expect(err).To(BeNil())
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			err = alice.StoreFile(aliceFile, []byte(contentTwo))
+			Expect(err).To(BeNil())
+
+			data, err := alice.LoadFile(aliceFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentTwo)))
 		})
 	})
 
