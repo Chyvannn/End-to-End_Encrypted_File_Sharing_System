@@ -523,6 +523,24 @@ var _ = Describe("Client Tests", func() {
 			Expect(err).ToNot(BeNil())
 		})
 
+		Specify("Create/AcceptInvitation Test: Testing malicious AcceptInvitatation.", func() {
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			invitation, err := alice.CreateInvitation(aliceFile, "bob")
+			Expect(err).To(BeNil())
+
+			userlib.DatastoreClear()
+
+			err = bob.AcceptInvitation("alice", invitation, aliceFile)
+			Expect(err).ToNot(BeNil())
+		})
+
 		Specify("Create/AcceptInvitation Test: Testing different user instance can accept invitation.", func() {
 			alice, err = client.InitUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
