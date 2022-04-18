@@ -67,6 +67,7 @@ var _ = Describe("Client Tests", func() {
 	var err error
 
 	// A bunch of filenames that may be useful.
+	nonExistFile := "notExistFile.txt"
 	aliceFile := "aliceFile.txt"
 	bobFile := "bobFile.txt"
 	bobFile2 := "bobFile2.txt"
@@ -374,7 +375,7 @@ var _ = Describe("Client Tests", func() {
 			Expect(data).To(Equal([]byte(contentTwo)))
 		})
 
-		Specify("Store/Load/AppendToFile Test: Testing integrity on file", func() {
+		Specify("Store/Load/AppendToFile Test: Testing integrity on LoadFile.", func() {
 			alice, err = client.InitUser("alice", emptyString)
 			Expect(err).To(BeNil())
 			err = alice.StoreFile(aliceFile, []byte(contentOne))
@@ -382,6 +383,37 @@ var _ = Describe("Client Tests", func() {
 
 			userlib.DatastoreClear()
 			_, err := alice.LoadFile(aliceFile)
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Store/Load/AppendToFile Test: Testing LoadFile on not existing filename.", func() {
+			alice, err = client.InitUser("alice", emptyString)
+			Expect(err).To(BeNil())
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			_, err := alice.LoadFile(nonExistFile)
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Store/Load/AppendToFile Test: Testing AppendToFile on not existing filename.", func() {
+			alice, err = client.InitUser("alice", emptyString)
+			Expect(err).To(BeNil())
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			err := alice.AppendToFile(nonExistFile, []byte(contentTwo))
+			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Store/Load/AppendToFile Test: Testing integrity on AppendToFile.", func() {
+			alice, err = client.InitUser("alice", emptyString)
+			Expect(err).To(BeNil())
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			userlib.DatastoreClear()
+			err := alice.AppendToFile(aliceFile, []byte(contentTwo))
 			Expect(err).ToNot(BeNil())
 		})
 	})
