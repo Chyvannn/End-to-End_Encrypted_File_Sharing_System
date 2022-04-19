@@ -339,7 +339,7 @@ var _ = Describe("Client Tests", func() {
 
 	Describe("Store/Load/AppendToFile Tests", func() {
 		//TODO: Testing multiple user with multiple files
-		Specify("Store/Load/AppendToFile Tests: Same filename in different userspace", func() {
+		Specify("Store/Load/AppendToFile Test: Testing same filename in different userspace", func() {
 			alice, err = client.InitUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
 			bob, err = client.InitUser("bob", defaultPassword)
@@ -360,7 +360,7 @@ var _ = Describe("Client Tests", func() {
 			Expect(data).To(Equal([]byte(contentTwo)))
 		})
 
-		Specify("Store/Load/AppendToFile: Testing Empty file", func() {
+		Specify("Store/Load/AppendToFile Test: Testing empty file", func() {
 			alice, err = client.InitUser("alice", emptyString)
 			Expect(err).To(BeNil())
 
@@ -372,7 +372,7 @@ var _ = Describe("Client Tests", func() {
 			Expect(data).To(Equal([]byte(emptyString)))
 		})
 
-		Specify("Store/Load/AppendToFile Test: Testing Single User Store/Load of single file.", func() {
+		Specify("Store/Load/AppendToFile Test: Testing single User Store/Load of single file.", func() {
 			alice, err = client.InitUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
 

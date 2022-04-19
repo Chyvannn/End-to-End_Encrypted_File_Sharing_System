@@ -50,18 +50,15 @@ type FileHeader struct { // UUID <-- "username_filename"
 
 /* A single node in the sharing tree, may have multiple owners
  * Root ShareNode UUID is generated randomly
- * Sublevel ShareNode Id is generate from owner + direct recipient username */
-type ShareNode struct { // root UUID <-- random, child UUID <--
-	FileBodyId UUID
-	//TODO: delete ShareNodeID ???
-	ShareNodeId UUID
-	//TODO: delete IsRoot
-	IsRoot       bool     // Check if the current ShareNode is the root node
-	OwnerName    string   // "" if is the owner, the owner name otherwise
-	InvitationId UUID     // Invitation is also the lockbox
-	SNBaseKey    []byte   // Protect following ShareNode if is root, save keys of itself if not root
-	FileBaseKey  []byte   // Protect FileBody only used by root nodes
-	ChildrenName []string // Children's name list for the root ShareNode
+ * Child ShareNode Id is generate from owner + direct recipient username
+ * ShareNode will not be recyphered in revocation, only change fileBasekey in Lockbox!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+ */
+type ShareNode struct { // root UUID <-- random, child UUID <-- "sendername_recipientname_filename" to locate children when revoke
+	FileBodyId   UUID
+	ShareNodeId  UUID     // Used in CreateInvitation
+	LockboxId    UUID     // Invitation is also the lockbox
+	SNBaseKey    []byte   // Protect following ShareNode if is root, protect itself otherwise
+	ChildrenName []string // Children's name list for the root ShareNode, nil if is child
 }
 
 type FileBody struct { // UUID <-- random
@@ -75,8 +72,16 @@ type FileContent struct { // UUID <-- random
 }
 
 type Invitation struct {
-	ShareId           UUID
-	InvitationBaseKey []byte
+	ShareId UUID // Recipient ShareNode location
+	// LockboxId         UUID   // Share the lockbox location
+	InvitationBaseKey []byte // Protect lockbox
+}
+
+/* Lockbox protection is not changed during revocation, we only change the fileBaseKey in it!!!!!!!!!!!!!!!!!!!!!!!!!
+ * One Lockbox per ShareNode
+ */
+type Lockbox struct {
+	fileBaseKey []byte // Protect file
 }
 
 /* All the data stored in Datastore, */
@@ -176,14 +181,15 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 }
 
 func (userdata *User) StoreFile(filename string, content []byte) (err error) {
-	// Create FileHeader
-	var fileHeader FileHeader
+	var fileHeader FileHeader //Done
+	var shareNode ShareNode
+	var lockbox Lockbox
+	var fileBody FileBody
+	var fileContent FileContent
+
+	// Create FileHeader, UUID on fly no store
 	tempString := fmt.Sprintf("%s_%s", userdata.Username, filename) // Get FileHeader UUID on fly
 	fhid, err := getUUIDFromString([]byte(tempString))
-	if err != nil {
-		return
-	}
-	userEncKey, userMacKey, err := getKeyPairFromBase(userdata.UserBaseKey)
 	if err != nil {
 		return
 	}
@@ -192,70 +198,78 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 		return
 	}
 	fileHeader.FHBaseKey = fileHeaderBaseKey
-	snid := uuid.New() // Generate direct ShareNode UUID
-	fileHeader.ShareId = snid
+	fileHeader.ShareId = uuid.New() // Generate direct ShareNode UUID
+	userEncKey, userMacKey, err := getKeyPairFromBase(userdata.UserBaseKey)
+	if err != nil {
+		return
+	}
 	err = storeSymEncObject(fhid, fileHeader, userEncKey, userMacKey)
 	if err != nil {
 		return
 	}
 
 	// Create new ShareNode
-	var shareNode ShareNode // UUID generated in the previsou step
-	fbid := uuid.New()      // generate FileBody UUID
-	shareNode.FileBodyId = fbid
-	// shareNode.ShareNodeId = snid
-	// shareNode.IsRoot = true
-	shareNode.OwnerName = "" // username will always be greater than zero,
-	shareNode.InvitationId = uuid.Nil
-	// ShareNode created by StoreFile will always be the root node
+	shareNode.FileBodyId = uuid.New() // generate FileBody UUID
+	shareNode.ShareNodeId = fileHeader.ShareId
+	shareNode.LockboxId = uuid.New()
 	shareNodeBaseKey, err := getNextBaseKey(fileHeaderBaseKey)
 	if err != nil {
 		return
 	}
 	shareNode.SNBaseKey = shareNodeBaseKey
-	fileBaseKey, err := getNextBaseKey(shareNodeBaseKey)
-	if err != nil {
-		return
-	}
-	shareNode.FileBaseKey = fileBaseKey
-	shareNode.ChildrenName = nil
-	// Direct ShareNode is protected by the FileHeader key pairs
+	shareNode.ChildrenName = make([]string, 0) // Create a empty string slice, nil if is child
 	fileHeaderEncKey, fileHeaderMacKey, err := getKeyPairFromBase(fileHeaderBaseKey)
 	if err != nil {
 		return
 	}
-	err = storeSymEncObject(snid, shareNode, fileHeaderEncKey, fileHeaderMacKey)
+	err = storeSymEncObject(fileHeader.ShareId, shareNode, fileHeaderEncKey, fileHeaderMacKey)
 	if err != nil {
 		return
 	}
 
+	// Create new Lockbox
+	lockboxBaseKey, err := getLockboxBaseKey(shareNodeBaseKey) // On fly
+	if err != nil {
+		return err
+	}
+	fileBaseKey, err := getNextBaseKey(lockboxBaseKey)
+	if err != nil {
+		return
+	}
+	lockbox.fileBaseKey = fileBaseKey
+	lockboxEncKey, lockboxMacKey, err := getKeyPairFromBase(lockboxBaseKey)
+	if err != nil {
+		return err
+	}
+	err = storeSymEncObject(shareNode.LockboxId, lockbox, lockboxEncKey, lockboxMacKey)
+	if err != nil {
+		return err
+	}
+
 	// Create fileBody, protect by FileEncKey, FileMACKey
-	var fileBody FileBody
 	fileBodyBaseKey, err := getNextBaseKey(fileBaseKey)
 	if err != nil {
 		return
 	}
 	fileBody.FBBaseKey = fileBodyBaseKey
-	fcid := uuid.New() // Generate random content UUID
-	fileBody.LastContent = fcid
+	fileBody.LastContent = uuid.New()
 	fileEncKey, fileMacKey, err := getKeyPairFromBase(fileBaseKey)
 	if err != nil {
 		return
 	}
-	err = storeSymEncObject(fbid, fileBody, fileEncKey, fileMacKey)
+	err = storeSymEncObject(shareNode.FileBodyId, fileBody, fileEncKey, fileMacKey)
 	if err != nil {
 		return
 	}
 
-	// Create FileContent for the file
-	var fileContent FileContent
+	// Create FileContent for the new file
 	fileContent.Content = content
 	fileContent.PrevContent = uuid.Nil
 	fileBodyEncKey, fileBodyMacKey, err := getKeyPairFromBase(fileBodyBaseKey)
 	if err != nil {
 		return
 	}
-	err = storeSymEncObject(fcid, fileContent, fileBodyEncKey, fileBodyMacKey)
+	err = storeSymEncObject(fileBody.LastContent, fileContent, fileBodyEncKey, fileBodyMacKey)
 	if err != nil {
 		return
 	}
@@ -278,7 +292,7 @@ func (userdata *User) AppendToFile(filename string, content []byte) error {
 	}
 
 	// Get file base key
-	fileBaseKey, err := userdata.getSNFileBaseKey(shareNode)
+	fileBaseKey, err := shareNode.getSNFileBaseKey()
 	if err != nil {
 		return err
 	}
@@ -342,6 +356,9 @@ func (userdata *User) LoadFile(filename string) (content []byte, err error) {
 
 func (userdata *User) CreateInvitation(filename string, recipientUsername string) (
 	invitationPtr uuid.UUID, err error) {
+	var recipientNode ShareNode // the recipient sharenode info will be send
+	var invitation Invitation
+
 	var senderFileHeader FileHeader
 	err = userdata.getFileHeader(filename, &senderFileHeader)
 	if err != nil {
@@ -353,35 +370,63 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 	if err != nil {
 		return uuid.Nil, err
 	}
-	var recipientNode ShareNode
-	if senderNode.IsRoot {
-		// if the sender node is root, create a new ShareNode as recipient
+
+	fileBodyBaseKey, err := senderNode.getSNFileBaseKey()
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	if senderNode.ChildrenName != nil {
+		// if the sender node is root, create new ShareNode and Lockbox recipient
 		tempString := fmt.Sprintf("%s_%s_%s", userdata.Username, recipientUsername, filename)
-		// fmt.Println("\nCreateInvitation: ", tempString)
 		recipientId, err := getUUIDFromString([]byte(tempString))
-		// fmt.Println("\nCreateInvitation UUID: ", recipientId)
 		if err != nil {
 			return uuid.Nil, err
 		}
+		recipientNode.FileBodyId = senderNode.FileBodyId // recipient shares the same FileBody with sender
 		recipientNode.ShareNodeId = recipientId
-		recipientNode.IsRoot = false                       // recipient node will not be a root
-		recipientNode.FileBaseKey = senderNode.FileBaseKey // recipient shares the same FileKey with sender
-		recipientNode.FileBodyId = senderNode.FileBodyId   // recipient shares the same FileBody with sender
-
+		recipientNode.LockboxId = uuid.New()
 		senderNode.ChildrenName = append(senderNode.ChildrenName, recipientUsername)
+		recipientNode.ChildrenName = nil
 		childBaseKey, err := getChildBaseKey(senderNode.SNBaseKey, recipientUsername)
 		if err != nil {
 			return uuid.Nil, err
 		}
-		recipientNode.SNBaseKey = childBaseKey
-		senderNodeEncKey, senderNodeMacKey, err := getKeyPairFromBase(childBaseKey)
+		recipientSNBaseKey, err := getNextBaseKey(childBaseKey)
 		if err != nil {
 			return uuid.Nil, err
 		}
-		err = storeSymEncObject(recipientId, recipientNode, senderNodeEncKey, senderNodeMacKey)
+		recipientNode.SNBaseKey = recipientSNBaseKey
+		childEncKey, childMacKey, err := getKeyPairFromBase(childBaseKey)
 		if err != nil {
 			return uuid.Nil, err
 		}
+
+		// Set InvitationBaseKey to ChildBaseKey to protect ShareNode in Invitation
+		invitation.InvitationBaseKey = childBaseKey
+
+		err = storeSymEncObject(recipientId, recipientNode, childEncKey, childMacKey)
+		if err != nil {
+			return uuid.Nil, err
+		}
+
+		// Store the new Lockbox in DataStore
+		var lockbox Lockbox
+		lockbox.fileBaseKey = fileBodyBaseKey
+		lockboxBaseKey, err := getLockboxBaseKey(recipientNode.SNBaseKey)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		lockboxEncKey, lockboxMacKey, err := getKeyPairFromBase(lockboxBaseKey)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		err = storeSymEncObject(recipientNode.LockboxId, lockbox, lockboxEncKey, lockboxMacKey)
+		if err != nil {
+			return uuid.Nil, err
+		}
+
+		// Update sender node in DataStore
 		senderFHEncKey, senderFHMacKey, err := getKeyPairFromBase(senderFileHeader.FHBaseKey)
 		if err != nil {
 			return uuid.Nil, err
@@ -392,47 +437,27 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 		}
 	} else {
 		// if sender is not the root, use current ShareNode as recipient
+		invitation.InvitationBaseKey = senderFileHeader.FHBaseKey
 		recipientNode = senderNode
 	}
 
 	// Create invitation infomation
-	var invitation Invitation
 	invitation.ShareId = recipientNode.ShareNodeId
-	invitation.InvitationBaseKey = recipientNode.SNBaseKey
 
-	// Enc and sign invitation and store in InvitationData
-	rsaString := recipientUsername + "RSA_Public_Key"
-	rsaEncKey, ok := userlib.KeystoreGet(rsaString)
-	if !ok {
-		return uuid.Nil, errors.New("recipient RSA public key doesn't exist")
-	}
-	invitationBytes, err := json.Marshal(invitation)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	cypherInvitation, err := userlib.PKEEnc(rsaEncKey, invitationBytes)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	signature, err := userlib.DSSign(userdata.UserSignPrivateKey, cypherInvitation)
-	if err != nil {
-		return uuid.Nil, err
-	}
-
-	// Create InvitationDate to actually store in DataStore
-	var invitationData PublicEncData
 	tempString := fmt.Sprintf("Invitation: %s_%s_%s", userdata.Username, filename, recipientUsername)
 	invitationDataId, err := getUUIDFromString([]byte(tempString))
 	if err != nil {
 		return uuid.Nil, err
 	}
-	invitationData.CypherText = cypherInvitation
-	invitationData.Signature = signature
-	invitationDataBytes, err := json.Marshal(invitationData)
+	rsaString := recipientUsername + "RSA_Public_Key"
+	rsaEncKey, ok := userlib.KeystoreGet(rsaString)
+	if !ok {
+		return uuid.Nil, errors.New("recipient RSA public key doesn't exist")
+	}
+	err = storePublicEncObject(invitationDataId, invitation, rsaEncKey, userdata.UserSignPrivateKey)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	userlib.DatastoreSet(invitationDataId, invitationDataBytes)
 	return invitationDataId, nil
 }
 
@@ -442,45 +467,26 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 	if err != nil {
 		return err
 	}
+	// Check filename doesn;t already exist
 	_, ok := userlib.DatastoreGet(fhid)
 	if ok {
 		return errors.New("filename already exist in current userspace")
 	}
-
-	invitationDataBytes, ok := userlib.DatastoreGet(invitationPtr)
-	if !ok {
-		return errors.New("can not find the invitation in DataStore")
-	}
-	// Delete invitation after user get from DataStore
-	userlib.DatastoreDelete(invitationPtr)
-	var invitationData PublicEncData
-	err = json.Unmarshal(invitationDataBytes, &invitationData)
-	if err != nil {
-		return err
-	}
-	cypherInvitation := invitationData.CypherText
-	signature := invitationData.Signature
+	var invitation Invitation
 	signString := senderUsername + "Digital_Signature_Key"
 	signVerifyKey, ok := userlib.KeystoreGet(signString)
 	if !ok {
 		return errors.New("can not find the sender signature verify key")
 	}
-	err = userlib.DSVerify(signVerifyKey, cypherInvitation, signature)
+	err = getPublicEncObject(invitationPtr, userdata.UserRSAPrivateKey, signVerifyKey, &invitation)
 	if err != nil {
 		return err
 	}
-	invitationBytes, err := userlib.PKEDec(userdata.UserRSAPrivateKey, cypherInvitation)
-	if err != nil {
-		return err
-	}
-	var invitation Invitation
-	err = json.Unmarshal(invitationBytes, &invitation)
-	if err != nil {
-		return err
-	}
+
 	var fileHeader FileHeader
 	fileHeader.ShareId = invitation.ShareId
 	fileHeader.FHBaseKey = invitation.InvitationBaseKey
+	userlib.DatastoreDelete(invitationPtr) // Delete invitation in DataStore
 	userEncKey, userMacKey, err := getKeyPairFromBase(userdata.UserBaseKey)
 	if err != nil {
 		return err
@@ -499,18 +505,13 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	if err != nil {
 		return err
 	}
-	fileHeaderEncKey, fileHeaderMacKey, err := getKeyPairFromBase(ownerFileHeader.FHBaseKey)
-	if err != nil {
-		return err
-	}
-
 	var ownerNode ShareNode
-	err = getSymEncObject(ownerFileHeader.ShareId, fileHeaderEncKey, fileHeaderMacKey, &ownerNode)
+	err = userdata.getShareNode(filename, &ownerNode)
 	if err != nil {
 		return err
 	}
 
-	if !ownerNode.IsRoot {
+	if ownerNode.ChildrenName == nil {
 		return errors.New("current user does not own the file")
 	}
 
@@ -544,26 +545,34 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 		return nil
 	}
 
-	// Derive new FileBaseKey and SNBaseKey from the old ones
-	newFileBaseKey, err := getNextBaseKey(ownerNode.FileBaseKey)
+	// Only needs to update fileBaseKey in Lockbox of each ShareNode
+	oldFileBaseKey, err := ownerNode.getSNFileBaseKey()
 	if err != nil {
 		return err
 	}
-	newSNBaseKey, err := getNextBaseKey(ownerNode.SNBaseKey)
+	newFileBaseKey, err := getNextBaseKey(oldFileBaseKey)
 	if err != nil {
 		return err
 	}
 
-	// Get old/new file enc/mac key from old/new file base key
-	oldFileEncKey, oldFileMacKey, err := getKeyPairFromBase(ownerNode.FileBaseKey)
+	var ownerLockbox Lockbox
+	lockBoxBaseKey, err := getLockboxBaseKey(ownerNode.SNBaseKey)
 	if err != nil {
 		return err
 	}
-	newFileEncKey, newFileMacKey, err := getKeyPairFromBase(newFileBaseKey)
+	lockboxEncKey, lockboxMacKey, err := getKeyPairFromBase(lockBoxBaseKey)
 	if err != nil {
 		return err
 	}
-	ownerNode.FileBaseKey = newFileBaseKey
+	err = getSymEncObject(ownerNode.LockboxId, lockboxEncKey, lockboxMacKey, &ownerLockbox)
+	if err != nil {
+		return err
+	}
+	ownerLockbox.fileBaseKey = newFileBaseKey
+	err = storeSymEncObject(ownerNode.LockboxId, ownerLockbox, lockboxEncKey, lockboxMacKey)
+	if err != nil {
+		return err
+	}
 
 	for i := 0; i < len(ownerNode.ChildrenName); i++ {
 		if ownerNode.ChildrenName[i] == "" {
@@ -575,48 +584,56 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 		if err != nil {
 			return err
 		}
+		childBaseKey, err := getChildBaseKey(ownerNode.SNBaseKey, ownerNode.ChildrenName[i])
+		if err != nil {
+			return err
+		}
+		childEncKey, childMacKey, err := getKeyPairFromBase(childBaseKey)
+		if err != nil {
+			return err
+		}
+		var childNode ShareNode
+		err = getSymEncObject(childId, childEncKey, childMacKey, &childNode)
+		if err != nil {
+			return err
+		}
+
+		lockBoxBaseKey, err := getLockboxBaseKey(childNode.SNBaseKey)
+		if err != nil {
+			return err
+		}
+		lockboxEncKey, lockboxMacKey, err := getKeyPairFromBase(lockBoxBaseKey)
+		if err != nil {
+			return err
+		}
+		var lockbox Lockbox
+		err = getSymEncObject(childNode.LockboxId, lockboxEncKey, lockboxMacKey, &lockbox)
+		if err != nil {
+			return err
+		}
+
 		if ownerNode.ChildrenName[i] != recipientUsername {
 			// If the current child is not the one we will revoke, recypher all the information
 			// Get old child base key and then enc & mac key
-			oldChildBaseKey, err := getChildBaseKey(ownerNode.SNBaseKey, ownerNode.ChildrenName[i])
-			if err != nil {
-				return err
-			}
-			oldSNEncKey, oldSNMacKey, err := getKeyPairFromBase(oldChildBaseKey)
-			if err != nil {
-				return err
-			}
-			var shareNode ShareNode
-			err = getSymEncObject(childId, oldSNEncKey, oldSNMacKey, &shareNode)
-			if err != nil {
-				return err
-			}
-			// Update key pairs in remaining ShareNodes
-			shareNode.FileBaseKey = newFileBaseKey
-			newChildBaseKey, err := getChildBaseKey(newSNBaseKey, ownerNode.ChildrenName[i])
-			if err != nil {
-				return err
-			}
-			shareNode.FileBaseKey = newFileBaseKey
-			shareNode.SNBaseKey = newChildBaseKey
-			newSNEncKey, newSNMacKey, err := getKeyPairFromBase(newChildBaseKey)
-			if err != nil {
-				return err
-			}
-			// Recypher ShareNode on DataStore
-			err = storeSymEncObject(childId, shareNode, newSNEncKey, newSNMacKey)
-			if err != nil {
-				return err
-			}
+			lockbox.fileBaseKey = newFileBaseKey
 		} else {
 			// If recipient found, zero out the recipient name in owner's list
 			ownerNode.ChildrenName[i] = ""
+			lockbox.fileBaseKey = nil
 			userlib.DatastoreDelete(childId)
 		}
-	}
-	ownerNode.SNBaseKey = newSNBaseKey
 
-	err = storeSymEncObject(ownerFileHeader.ShareId, ownerNode, fileHeaderEncKey, fileHeaderMacKey)
+		err = storeSymEncObject(childNode.LockboxId, lockbox, lockboxEncKey, lockboxMacKey)
+		if err != nil {
+			return err
+		}
+	}
+
+	oldFileEncKey, oldFileMacKey, err := getKeyPairFromBase(oldFileBaseKey)
+	if err != nil {
+		return err
+	}
+	newFileEncKey, newFileMacKey, err := getKeyPairFromBase(newFileBaseKey)
 	if err != nil {
 		return err
 	}
@@ -835,30 +852,27 @@ func (userdata *User) getShareNode(filename string, shareNode interface{}) (err 
 	}
 	err = getSymEncObject(fileHeader.ShareId, fileHeaderEncKey, fileHeaderMacKey, &shareNode)
 	if err != nil {
-		return err
+		return
 	}
 	return
 }
 
 /* Get file base key from ShareNode */
-func (userdata *User) getSNFileBaseKey(shareNode ShareNode) (fileBaseKey []byte, err error) {
-	if shareNode.OwnerName == "" {
-		// ShareNode is the root node, get key from ShareNode
-		return shareNode.FileBaseKey, nil
-	} else {
-		// ShareNode is the child node, get key from Invitation
-		var invitation Invitation
-		signKey := shareNode.OwnerName + "Digital_Signature_Key"
-		verifyKey, ok := userlib.KeystoreGet(signKey)
-		if !ok {
-			return nil, errors.New("cannot find digital signature verify key")
-		}
-		err = getPublicEncObject(shareNode.InvitationId, userdata.UserRSAPrivateKey, verifyKey, &invitation)
-		if err != nil {
-			return nil, err
-		}
-		return invitation.InvitationBaseKey, nil
+func (shareNode *ShareNode) getSNFileBaseKey() (fileBaseKey []byte, err error) {
+	var lockbox Lockbox
+	lockboxBaseKey, err := getLockboxBaseKey(shareNode.SNBaseKey)
+	if err != nil {
+		return nil, err
 	}
+	lockboxEncKey, lockboxMacKey, err := getKeyPairFromBase(lockboxBaseKey)
+	if err != nil {
+		return nil, err
+	}
+	err = getSymEncObject(shareNode.LockboxId, lockboxEncKey, lockboxMacKey, &lockbox)
+	if err != nil {
+		return nil, err
+	}
+	return lockbox.fileBaseKey, nil
 }
 
 /* Get FileBody from username and filename*/
@@ -866,19 +880,19 @@ func (userdata *User) getFileBody(filename string, fileBody interface{}) (err er
 	var shareNode ShareNode
 	err = userdata.getShareNode(filename, &shareNode)
 	if err != nil {
-		return
+		return err
 	}
-	fileBaseKey, err := userdata.getSNFileBaseKey(shareNode)
+	fileBaseKey, err := shareNode.getSNFileBaseKey()
 	if err != nil {
-		return
+		return err
 	}
 	fileEncKey, fileMacKey, err := getKeyPairFromBase(fileBaseKey)
 	if err != nil {
-		return
+		return err
 	}
 	err = getSymEncObject(shareNode.FileBodyId, fileEncKey, fileMacKey, &fileBody)
 	if err != nil {
-		return
+		return err
 	}
 	return
 }
@@ -926,6 +940,16 @@ func getChildBaseKey(baseKey []byte, recipientName string) (childBaseKey []byte,
 		return nil, err
 	}
 	return childBaseKey[:16], nil
+}
+
+/* Get a new Lockbox base key */
+func getLockboxBaseKey(baseKey []byte) (lockboxBaseKey []byte, err error) {
+	lockboxBaseKey, err = userlib.HashKDF(baseKey, []byte("Lockbox"))
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println(len(lockboxBaseKey))
+	return lockboxBaseKey[:16], nil
 }
 
 /* Get next base key from current one */
