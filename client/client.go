@@ -52,12 +52,14 @@ type FileHeader struct {
  * Root ShareNode UUID is generated randomly
  * Sublevel ShareNode Id is generate from owner + direct recipient username */
 type ShareNode struct {
-	FileBodyId   UUID
-	ShareNodeId  UUID
-	SNBaseKey    []byte   // Protect following ShareNode if is root, save keys of itself if not root
-	FileBaseKey  []byte   // Shared between users sharing the same file
-	IsRoot       bool     // Check if the current ShareNode is the root node
-	ChildrenName []string // Children's name list for the root ShareNode
+	FileBodyId    UUID
+	ShareNodeId   UUID
+	FHBaseKeys    [][]byte // Used in RevokeAccess
+	FileHeaderIds []UUID
+	SNBaseKey     []byte   // Protect following ShareNode if is root, save keys of itself if not root
+	FileBaseKey   []byte   // Shared between users sharing the same file
+	IsRoot        bool     // Check if the current ShareNode is the root node
+	ChildrenName  []string // Children's name list for the root ShareNode
 }
 
 type FileBody struct {
@@ -329,6 +331,12 @@ func (userdata *User) LoadFile(filename string) (content []byte, err error) {
 
 func (userdata *User) CreateInvitation(filename string, recipientUsername string) (
 	invitationPtr uuid.UUID, err error) {
+	var senderFileHeader FileHeader
+	err = userdata.getFileHeader(filename, &senderFileHeader)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
 	var senderNode ShareNode
 	err = userdata.getShareNode(filename, &senderNode)
 	if err != nil {
@@ -338,14 +346,23 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 	if senderNode.IsRoot {
 		// if the sender node is root, create a new ShareNode as recipient
 		tempString := fmt.Sprintf("%s_%s_%s", userdata.Username, recipientUsername, filename)
+		// fmt.Println("\nCreateInvitation: ", tempString)
 		recipientId, err := getUUIDFromString([]byte(tempString))
+		// fmt.Println("\nCreateInvitation UUID: ", recipientId)
 		if err != nil {
 			return uuid.Nil, err
 		}
 		recipientNode.ShareNodeId = recipientId
-		recipientNode.IsRoot = false                       // recipient node will not be a root
-		recipientNode.FileBaseKey = senderNode.FileBaseKey // recipient shares the same FileKey with sender
-		recipientNode.FileBodyId = senderNode.FileBodyId   // recipient shares the same FileBody with sender
+		recipientNode.IsRoot = false                                   // recipient node will not be a root
+		recipientNode.FileBaseKey = senderNode.FileBaseKey             // recipient shares the same FileKey with sender
+		recipientNode.FileBodyId = senderNode.FileBodyId               // recipient shares the same FileBody with sender
+		tempString = fmt.Sprintf("%s_%s", userdata.Username, filename) // Get FileHeader UUID on fly
+		fhid, err := getUUIDFromString([]byte(tempString))
+		if err != nil {
+			return uuid.Nil, err
+		}
+		recipientNode.FileHeaderIds = append(recipientNode.FileHeaderIds, fhid)
+		recipientNode.FHBaseKeys = append(recipientNode.FHBaseKeys, userdata.UserBaseKey)
 		senderNode.ChildrenName = append(senderNode.ChildrenName, recipientUsername)
 		childBaseKey, err := getChildBaseKey(senderNode.SNBaseKey, recipientUsername)
 		if err != nil {
@@ -357,6 +374,14 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 			return uuid.Nil, err
 		}
 		err = storeObject(recipientId, recipientNode, senderNodeEncKey, senderNodeMacKey)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		senderFHEncKey, senderFHMacKey, err := getKeyPairFromBase(senderFileHeader.FHBaseKey)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		err = storeObject(senderFileHeader.ShareId, senderNode, senderFHEncKey, senderFHMacKey)
 		if err != nil {
 			return uuid.Nil, err
 		}
@@ -470,29 +495,28 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	var ownerFileHeader FileHeader
 	err := userdata.getFileHeader(filename, &ownerFileHeader)
 	if err != nil {
-		return err
+		return errors.New("1")
 	}
 	fileHeaderEncKey, fileHeaderMacKey, err := getKeyPairFromBase(ownerFileHeader.FHBaseKey)
 	if err != nil {
-		return err
+		return errors.New("2")
 	}
 
-	// Get owner ShareNode, changed after revoke access
 	var ownerNode ShareNode
 	err = getObject(ownerFileHeader.ShareId, fileHeaderEncKey, fileHeaderMacKey, &ownerNode)
 	if err != nil {
-		return err
+		return errors.New("3")
 	}
 
 	if !ownerNode.IsRoot {
 		return errors.New("current user does not own the file")
 	}
 
-	// Get UUID of the recipient ShareNode
+	// Get UUID of the recipient ShareNode, check that the file is shared
 	tempString := fmt.Sprintf("%s_%s_%s", userdata.Username, recipientUsername, filename)
 	recipientShareId, err := getUUIDFromString([]byte(tempString))
 	if err != nil {
-		return err
+		return errors.New("4")
 	}
 	_, ok := userlib.DatastoreGet(recipientShareId)
 	if !ok {
@@ -503,10 +527,10 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	tempString = fmt.Sprintf("Invitation: %s_%s_%s", userdata.Username, filename, recipientUsername)
 	invitationDataId, err := getUUIDFromString([]byte(tempString))
 	if err != nil {
-		return err
+		return errors.New("5")
 	}
 	_, ok = userlib.DatastoreGet(invitationDataId)
-	if ok {
+	if ok { // Invitation not accepted
 		userlib.DatastoreDelete(invitationDataId)
 		for i := 0; i < len(ownerNode.ChildrenName); i++ {
 			if ownerNode.ChildrenName[i] == recipientUsername {
@@ -515,37 +539,42 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 				return nil
 			}
 		}
+		return nil
 	}
 
 	// Derive new FileBaseKey and SNBaseKey from the old ones
 	newFileBaseKey, err := getNextBaseKey(ownerNode.FileBaseKey)
 	if err != nil {
-		return err
+		return errors.New("6")
 	}
 	newSNBaseKey, err := getNextBaseKey(ownerNode.SNBaseKey)
 	if err != nil {
-		return err
+		return errors.New("7")
 	}
 
-	// Get old/new sn/file enc/mac key from old/new sn/file base key
+	// Get old/new file enc/mac key from old/new file base key
 	oldFileEncKey, oldFileMacKey, err := getKeyPairFromBase(ownerNode.FileBaseKey)
 	if err != nil {
-		return err
+		return errors.New("8")
 	}
 	newFileEncKey, newFileMacKey, err := getKeyPairFromBase(newFileBaseKey)
 	if err != nil {
-		return err
+		return errors.New("9")
 	}
 	ownerNode.FileBaseKey = newFileBaseKey
 
-	err = storeObject(ownerFileHeader.ShareId, ownerNode, fileHeaderEncKey, fileHeaderMacKey)
-	if err != nil {
-		return err
-	}
-
 	for i := 0; i < len(ownerNode.ChildrenName); i++ {
+		if ownerNode.ChildrenName[i] == "" {
+			continue
+		}
+		// Get current children's ShareNode id
+		tempString := fmt.Sprintf("%s_%s_%s", userdata.Username, ownerNode.ChildrenName[i], filename)
+		childId, err := getUUIDFromString([]byte(tempString))
+		if err != nil {
+			return errors.New("11")
+		}
 		if ownerNode.ChildrenName[i] != recipientUsername {
-			var shareNode ShareNode
+			// If the current child is not the one we will revoke, recypher all the information
 			// Get old child base key and then enc & mac key
 			oldChildBaseKey, err := getChildBaseKey(ownerNode.SNBaseKey, ownerNode.ChildrenName[i])
 			if err != nil {
@@ -555,7 +584,8 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 			if err != nil {
 				return err
 			}
-			err = getObject(recipientShareId, oldSNEncKey, oldSNMacKey, &shareNode)
+			var shareNode ShareNode
+			err = getObject(childId, oldSNEncKey, oldSNMacKey, &shareNode)
 			if err != nil {
 				return err
 			}
@@ -565,23 +595,31 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 			if err != nil {
 				return err
 			}
+			shareNode.FileBaseKey = newFileBaseKey
+			shareNode.SNBaseKey = newChildBaseKey
 			newSNEncKey, newSNMacKey, err := getKeyPairFromBase(newChildBaseKey)
 			if err != nil {
 				return err
 			}
 			// Recypher ShareNode on DataStore
-			err = storeObject(recipientShareId, shareNode, newSNEncKey, newSNMacKey)
+			err = storeObject(childId, shareNode, newSNEncKey, newSNMacKey)
 			if err != nil {
 				return err
 			}
 		} else {
-			// Zero out the child name in owner's list
+			// If recipient found, zero out the recipient name in owner's list
 			ownerNode.ChildrenName[i] = ""
-			userlib.DatastoreDelete(recipientShareId)
+			userlib.DatastoreDelete(childId)
 		}
 	}
+	ownerNode.SNBaseKey = newSNBaseKey
 
-	// Recypher FileBody
+	err = storeObject(ownerFileHeader.ShareId, ownerNode, fileHeaderEncKey, fileHeaderMacKey)
+	if err != nil {
+		return err
+	}
+
+	// Get FileBody to recypher FileBody
 	var fileBody FileBody
 	err = getObject(ownerNode.FileBodyId, oldFileEncKey, oldFileMacKey, &fileBody)
 	if err != nil {
@@ -731,7 +769,7 @@ func (userdata *User) getShareNode(filename string, shareNode interface{}) (err 
 	}
 	err = getObject(fileHeader.ShareId, fileHeaderEncKey, fileHeaderMacKey, &shareNode)
 	if err != nil {
-		return
+		return errors.New("3")
 	}
 	return
 }
