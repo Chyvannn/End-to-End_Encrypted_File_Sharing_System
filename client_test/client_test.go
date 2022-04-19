@@ -338,6 +338,7 @@ var _ = Describe("Client Tests", func() {
 	})
 
 	Describe("Store/Load/AppendToFile Tests", func() {
+		//TODO: Testing multiple user with multiple files
 		Specify("Store/Load/AppendToFile Tests: Same filename in different userspace", func() {
 			alice, err = client.InitUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
