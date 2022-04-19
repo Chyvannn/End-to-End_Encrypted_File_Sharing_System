@@ -72,19 +72,30 @@ type FileContent struct {
 	PrevContent UUID
 }
 
+/* Lockbox containing key to protect FileBody */
+type LockBox struct {
+	FileBaseKey []byte
+}
+
+/**/
+type LockBoxData struct {
+	CypherText []byte
+	Signature  []byte
+}
+
 type Invitation struct {
 	ShareId           UUID
 	InvitationBaseKey []byte
 }
 
 /* All the data stored in Datastore, */
-type Data struct {
+type SymEncData struct {
 	CypherText []byte
 	MAC        []byte
 }
 
 /* Invitation data store in DataStore*/
-type InvitationData struct {
+type PublicEncData struct {
 	CypherText []byte // RSA Encrypted Invitation data
 	Signature  []byte
 }
@@ -166,7 +177,7 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 	}
 
 	var userdata User
-	err = getObject(uid, encKey, macKey, &userdata)
+	err = getSymEncObject(uid, encKey, macKey, &userdata)
 	if err != nil {
 		return nil, errors.New("username and password do not match")
 	}
@@ -272,7 +283,7 @@ func (userdata *User) AppendToFile(filename string, content []byte) error {
 	if err != nil {
 		return err
 	}
-	err = getObject(shareNode.FileBodyId, fileEncKey, fileMacKey, &fileBody)
+	err = getSymEncObject(shareNode.FileBodyId, fileEncKey, fileMacKey, &fileBody)
 	if err != nil {
 		return err
 	}
@@ -312,7 +323,7 @@ func (userdata *User) LoadFile(filename string) (content []byte, err error) {
 	if err != nil {
 		return nil, err
 	}
-	err = getObject(fileBody.LastContent, fileBodyEncKey, fileBodyMacKey, &fileContent)
+	err = getSymEncObject(fileBody.LastContent, fileBodyEncKey, fileBodyMacKey, &fileContent)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +331,7 @@ func (userdata *User) LoadFile(filename string) (content []byte, err error) {
 	// Append the next content to the front of the current content
 	contentBytes = append(contentBytes, fileContent.Content...)
 	for fileContent.PrevContent != uuid.Nil {
-		err = getObject(fileContent.PrevContent, fileBodyEncKey, fileBodyMacKey, &fileContent)
+		err = getSymEncObject(fileContent.PrevContent, fileBodyEncKey, fileBodyMacKey, &fileContent)
 		if err != nil {
 			return nil, err
 		}
@@ -415,7 +426,7 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 	}
 
 	// Create InvitationDate to actually store in DataStore
-	var invitationData InvitationData
+	var invitationData PublicEncData
 	tempString := fmt.Sprintf("Invitation: %s_%s_%s", userdata.Username, filename, recipientUsername)
 	invitationDataId, err := getUUIDFromString([]byte(tempString))
 	if err != nil {
@@ -448,7 +459,7 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 	}
 	// Delete invitation after user get from DataStore
 	userlib.DatastoreDelete(invitationPtr)
-	var invitationData InvitationData
+	var invitationData PublicEncData
 	err = json.Unmarshal(invitationDataBytes, &invitationData)
 	if err != nil {
 		return err
@@ -495,17 +506,17 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	var ownerFileHeader FileHeader
 	err := userdata.getFileHeader(filename, &ownerFileHeader)
 	if err != nil {
-		return errors.New("1")
+		return err
 	}
 	fileHeaderEncKey, fileHeaderMacKey, err := getKeyPairFromBase(ownerFileHeader.FHBaseKey)
 	if err != nil {
-		return errors.New("2")
+		return err
 	}
 
 	var ownerNode ShareNode
-	err = getObject(ownerFileHeader.ShareId, fileHeaderEncKey, fileHeaderMacKey, &ownerNode)
+	err = getSymEncObject(ownerFileHeader.ShareId, fileHeaderEncKey, fileHeaderMacKey, &ownerNode)
 	if err != nil {
-		return errors.New("3")
+		return err
 	}
 
 	if !ownerNode.IsRoot {
@@ -516,7 +527,7 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	tempString := fmt.Sprintf("%s_%s_%s", userdata.Username, recipientUsername, filename)
 	recipientShareId, err := getUUIDFromString([]byte(tempString))
 	if err != nil {
-		return errors.New("4")
+		return err
 	}
 	_, ok := userlib.DatastoreGet(recipientShareId)
 	if !ok {
@@ -527,7 +538,7 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	tempString = fmt.Sprintf("Invitation: %s_%s_%s", userdata.Username, filename, recipientUsername)
 	invitationDataId, err := getUUIDFromString([]byte(tempString))
 	if err != nil {
-		return errors.New("5")
+		return err
 	}
 	_, ok = userlib.DatastoreGet(invitationDataId)
 	if ok { // Invitation not accepted
@@ -545,21 +556,21 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	// Derive new FileBaseKey and SNBaseKey from the old ones
 	newFileBaseKey, err := getNextBaseKey(ownerNode.FileBaseKey)
 	if err != nil {
-		return errors.New("6")
+		return err
 	}
 	newSNBaseKey, err := getNextBaseKey(ownerNode.SNBaseKey)
 	if err != nil {
-		return errors.New("7")
+		return err
 	}
 
 	// Get old/new file enc/mac key from old/new file base key
 	oldFileEncKey, oldFileMacKey, err := getKeyPairFromBase(ownerNode.FileBaseKey)
 	if err != nil {
-		return errors.New("8")
+		return err
 	}
 	newFileEncKey, newFileMacKey, err := getKeyPairFromBase(newFileBaseKey)
 	if err != nil {
-		return errors.New("9")
+		return err
 	}
 	ownerNode.FileBaseKey = newFileBaseKey
 
@@ -571,7 +582,7 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 		tempString := fmt.Sprintf("%s_%s_%s", userdata.Username, ownerNode.ChildrenName[i], filename)
 		childId, err := getUUIDFromString([]byte(tempString))
 		if err != nil {
-			return errors.New("11")
+			return err
 		}
 		if ownerNode.ChildrenName[i] != recipientUsername {
 			// If the current child is not the one we will revoke, recypher all the information
@@ -585,7 +596,7 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 				return err
 			}
 			var shareNode ShareNode
-			err = getObject(childId, oldSNEncKey, oldSNMacKey, &shareNode)
+			err = getSymEncObject(childId, oldSNEncKey, oldSNMacKey, &shareNode)
 			if err != nil {
 				return err
 			}
@@ -621,7 +632,7 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 
 	// Get FileBody to recypher FileBody
 	var fileBody FileBody
-	err = getObject(ownerNode.FileBodyId, oldFileEncKey, oldFileMacKey, &fileBody)
+	err = getSymEncObject(ownerNode.FileBodyId, oldFileEncKey, oldFileMacKey, &fileBody)
 	if err != nil {
 		return err
 	}
@@ -649,7 +660,7 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 
 	// Recypher the entire file with updated fileBaseKey
 	var fileContent FileContent
-	err = getObject(fileBody.LastContent, oldFBEncKey, oldFBMacKey, &fileContent)
+	err = getSymEncObject(fileBody.LastContent, oldFBEncKey, oldFBMacKey, &fileContent)
 	if err != nil {
 		return err
 	}
@@ -659,7 +670,7 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	}
 
 	for fileContent.PrevContent != uuid.Nil {
-		err = getObject(fileContent.PrevContent, oldFBEncKey, oldFBMacKey, &fileContent)
+		err = getSymEncObject(fileContent.PrevContent, oldFBEncKey, oldFBMacKey, &fileContent)
 		if err != nil {
 			return err
 		}
@@ -678,7 +689,7 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 
 /* Store an object into the Datastore with given UUID */
 func storeObject(dataId UUID, object interface{}, encKey []byte, macKey []byte) (err error) {
-	var data Data
+	var data SymEncData
 	iv := userlib.RandomBytes(16)
 	// Convert the data structure to []bytes
 	dataBytes, err := json.Marshal(object)
@@ -703,14 +714,14 @@ func storeObject(dataId UUID, object interface{}, encKey []byte, macKey []byte) 
 }
 
 /* Get an object from the Datastore */
-func getObject(dataId UUID, encKey []byte, macKey []byte, object interface{}) (err error) {
+func getSymEncObject(dataId UUID, encKey []byte, macKey []byte, object interface{}) (err error) {
 	databytes, ok := userlib.DatastoreGet(dataId)
 	if !ok {
 		return errors.New("no corresponding UUID found")
 	}
 
 	// Get data from the Datastore
-	var data Data
+	var data SymEncData
 	err = json.Unmarshal(databytes, &data)
 	if err != nil {
 		return err
@@ -748,7 +759,7 @@ func (userdata *User) getFileHeader(filename string, fileHeader interface{}) (er
 	if err != nil {
 		return
 	}
-	err = getObject(fhid, userEncKey, userMacKey, &fileHeader)
+	err = getSymEncObject(fhid, userEncKey, userMacKey, &fileHeader)
 	if err != nil {
 		return
 	}
@@ -767,9 +778,9 @@ func (userdata *User) getShareNode(filename string, shareNode interface{}) (err 
 	if err != nil {
 		return
 	}
-	err = getObject(fileHeader.ShareId, fileHeaderEncKey, fileHeaderMacKey, &shareNode)
+	err = getSymEncObject(fileHeader.ShareId, fileHeaderEncKey, fileHeaderMacKey, &shareNode)
 	if err != nil {
-		return errors.New("3")
+		return err
 	}
 	return
 }
@@ -786,7 +797,7 @@ func (userdata *User) getFileBody(filename string, fileBody interface{}) (err er
 	if err != nil {
 		return
 	}
-	err = getObject(shareNode.FileBodyId, fileEncKey, fileMacKey, &fileBody)
+	err = getSymEncObject(shareNode.FileBodyId, fileEncKey, fileMacKey, &fileBody)
 	if err != nil {
 		return
 	}
