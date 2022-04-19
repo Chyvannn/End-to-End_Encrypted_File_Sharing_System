@@ -155,7 +155,7 @@ func InitUser(username string, password string) (userdataptr *User, err error) {
 	}
 
 	//Save userdata to Datastore
-	err = storeObject(uid, userdata, encKey, macKey)
+	err = storeSymEncObject(uid, userdata, encKey, macKey)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +203,7 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 	fileHeader.FHBaseKey = fileHeaderBaseKey
 	snid := uuid.New() // Generate direct ShareNode UUID
 	fileHeader.ShareId = snid
-	err = storeObject(fhid, fileHeader, userEncKey, userMacKey)
+	err = storeSymEncObject(fhid, fileHeader, userEncKey, userMacKey)
 	if err != nil {
 		return
 	}
@@ -230,7 +230,7 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 	if err != nil {
 		return
 	}
-	err = storeObject(snid, shareNode, fileHeaderEncKey, fileHeaderMacKey)
+	err = storeSymEncObject(snid, shareNode, fileHeaderEncKey, fileHeaderMacKey)
 	if err != nil {
 		return
 	}
@@ -248,7 +248,7 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 	if err != nil {
 		return
 	}
-	err = storeObject(fbid, fileBody, fileEncKey, fileMacKey)
+	err = storeSymEncObject(fbid, fileBody, fileEncKey, fileMacKey)
 	if err != nil {
 		return
 	}
@@ -261,7 +261,7 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 	if err != nil {
 		return
 	}
-	err = storeObject(fcid, fileContent, fileBodyEncKey, fileBodyMacKey)
+	err = storeSymEncObject(fcid, fileContent, fileBodyEncKey, fileBodyMacKey)
 	if err != nil {
 		return
 	}
@@ -297,13 +297,13 @@ func (userdata *User) AppendToFile(filename string, content []byte) error {
 	if err != nil {
 		return err
 	}
-	err = storeObject(fcid, newContent, fileBodyEncKey, fileBodyMacKey)
+	err = storeSymEncObject(fcid, newContent, fileBodyEncKey, fileBodyMacKey)
 	if err != nil {
 		return err
 	}
 
 	// Update FileBody in the DataStore
-	err = storeObject(shareNode.FileBodyId, fileBody, fileEncKey, fileMacKey)
+	err = storeSymEncObject(shareNode.FileBodyId, fileBody, fileEncKey, fileMacKey)
 	if err != nil {
 		return err
 	}
@@ -384,7 +384,7 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 		if err != nil {
 			return uuid.Nil, err
 		}
-		err = storeObject(recipientId, recipientNode, senderNodeEncKey, senderNodeMacKey)
+		err = storeSymEncObject(recipientId, recipientNode, senderNodeEncKey, senderNodeMacKey)
 		if err != nil {
 			return uuid.Nil, err
 		}
@@ -392,7 +392,7 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 		if err != nil {
 			return uuid.Nil, err
 		}
-		err = storeObject(senderFileHeader.ShareId, senderNode, senderFHEncKey, senderFHMacKey)
+		err = storeSymEncObject(senderFileHeader.ShareId, senderNode, senderFHEncKey, senderFHMacKey)
 		if err != nil {
 			return uuid.Nil, err
 		}
@@ -494,7 +494,7 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 	if err != nil {
 		return err
 	}
-	err = storeObject(fhid, fileHeader, userEncKey, userMacKey)
+	err = storeSymEncObject(fhid, fileHeader, userEncKey, userMacKey)
 	if err != nil {
 		return err
 	}
@@ -613,7 +613,7 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 				return err
 			}
 			// Recypher ShareNode on DataStore
-			err = storeObject(childId, shareNode, newSNEncKey, newSNMacKey)
+			err = storeSymEncObject(childId, shareNode, newSNEncKey, newSNMacKey)
 			if err != nil {
 				return err
 			}
@@ -625,7 +625,7 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	}
 	ownerNode.SNBaseKey = newSNBaseKey
 
-	err = storeObject(ownerFileHeader.ShareId, ownerNode, fileHeaderEncKey, fileHeaderMacKey)
+	err = storeSymEncObject(ownerFileHeader.ShareId, ownerNode, fileHeaderEncKey, fileHeaderMacKey)
 	if err != nil {
 		return err
 	}
@@ -653,7 +653,7 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	fileBody.FBBaseKey = newFBBaseKey
 
 	// Recypher the fileBody
-	err = storeObject(ownerNode.FileBodyId, fileBody, newFileEncKey, newFileMacKey)
+	err = storeSymEncObject(ownerNode.FileBodyId, fileBody, newFileEncKey, newFileMacKey)
 	if err != nil {
 		return err
 	}
@@ -664,7 +664,7 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	if err != nil {
 		return err
 	}
-	err = storeObject(fileBody.LastContent, fileContent, newFBEncKey, newFBMacKey)
+	err = storeSymEncObject(fileBody.LastContent, fileContent, newFBEncKey, newFBMacKey)
 	if err != nil {
 		return err
 	}
@@ -674,7 +674,7 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 		if err != nil {
 			return err
 		}
-		err = storeObject(fileContent.PrevContent, fileContent, newFBEncKey, newFBMacKey)
+		err = storeSymEncObject(fileContent.PrevContent, fileContent, newFBEncKey, newFBMacKey)
 		if err != nil {
 			return err
 		}
@@ -688,7 +688,7 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 /********************************************************************************************************/
 
 /* Store an object into the Datastore with given UUID */
-func storeObject(dataId UUID, object interface{}, encKey []byte, macKey []byte) (err error) {
+func storeSymEncObject(dataId UUID, object interface{}, encKey []byte, macKey []byte) (err error) {
 	var data SymEncData
 	iv := userlib.RandomBytes(16)
 	// Convert the data structure to []bytes
