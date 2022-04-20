@@ -1039,5 +1039,55 @@ var _ = Describe("Client Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(data).To(Equal([]byte(contentOne)))
 		})
+
+		Specify("Revoke Test: Testing revocation with different user instance.", func() {
+			aliceDesktop, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+			aliceLaptop, err = client.GetUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			bob, err = client.InitUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+			bobLaptop, err = client.GetUser("bob", defaultPassword)
+			Expect(err).To(BeNil())
+
+			err = aliceDesktop.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			invite, err := aliceLaptop.CreateInvitation(aliceFile, "bob")
+			Expect(err).To(BeNil())
+			err = bob.AcceptInvitation("alice", invite, bobFile)
+			Expect(err).To(BeNil())
+
+			err = bobLaptop.AppendToFile(bobFile, []byte(contentTwo))
+			Expect(err).To(BeNil())
+
+			err = aliceLaptop.AppendToFile(aliceFile, []byte(contentThree))
+			Expect(err).To(BeNil())
+
+			data, err := aliceDesktop.LoadFile(aliceFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentOne + contentTwo + contentThree)))
+
+			data, err = aliceLaptop.LoadFile(aliceFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentOne + contentTwo + contentThree)))
+
+			data, err = bobLaptop.LoadFile(bobFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentOne + contentTwo + contentThree)))
+
+			data, err = bob.LoadFile(bobFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentOne + contentTwo + contentThree)))
+
+			err = aliceDesktop.RevokeAccess(aliceFile, "bob")
+			Expect(err).To(BeNil())
+
+			_, err = bobLaptop.LoadFile(bobFile)
+			Expect(err).ToNot(BeNil())
+			_, err = bob.LoadFile(bobFile)
+			Expect(err).ToNot(BeNil())
+		})
 	})
 })
