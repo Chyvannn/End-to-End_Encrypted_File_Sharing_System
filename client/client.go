@@ -191,6 +191,58 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 	if err != nil {
 		return
 	}
+	// Check if the fileHeader already exist
+	err = userdata.getFileHeader(filename, &fileHeader)
+	if err == nil {
+		// Filename exist in userspace, overwrite
+		err = userdata.getShareNode(filename, &shareNode)
+		if err != nil {
+			return
+		}
+		err = userdata.getFileBody(filename, &fileBody)
+		if err != nil {
+			return
+		}
+		var fileBaseKey []byte
+		fileBaseKey, err = shareNode.getSNFileBaseKey()
+		if err != nil {
+			return
+		}
+
+		var fileBodyBaseKey []byte
+		fileBodyBaseKey, err = getNextBaseKey(fileBaseKey)
+		if err != nil {
+			return
+		}
+		fileBody.FBBaseKey = fileBodyBaseKey
+		fileBody.LastContent = uuid.New()
+		var fileEncKey []byte
+		var fileMacKey []byte
+		fileEncKey, fileMacKey, err = getKeyPairFromBase(fileBaseKey)
+		if err != nil {
+			return
+		}
+		err = storeSymEncObject(shareNode.FileBodyId, fileBody, fileEncKey, fileMacKey)
+		if err != nil {
+			return
+		}
+
+		// Create FileContent for the new file
+		fileContent.Content = content
+		fileContent.PrevContent = uuid.Nil
+		var fileBodyEncKey []byte
+		var fileBodyMacKey []byte
+		fileBodyEncKey, fileBodyMacKey, err = getKeyPairFromBase(fileBodyBaseKey)
+		if err != nil {
+			return
+		}
+		err = storeSymEncObject(fileBody.LastContent, fileContent, fileBodyEncKey, fileBodyMacKey)
+		if err != nil {
+			return
+		}
+		return
+	}
+
 	fileHeaderBaseKey, err := getFileHeaderBaseKey(userdata.UserBaseKey, filename)
 	if err != nil {
 		return
