@@ -715,6 +715,23 @@ var _ = Describe("Client Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(data).To(Equal([]byte(contentTwo)))
 		})
+
+		Specify("Create/AcceptInvitation Test: Testing invitation cannot be stolen", func() {
+			alice, err = client.InitUser("alice", emptyString)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", emptyString)
+			Expect(err).To(BeNil())
+			eve, err = client.InitUser("eve", emptyString)
+			Expect(err).To(BeNil())
+
+			alice.StoreFile(aliceFile, []byte(contentOne))
+
+			invitation, err := alice.CreateInvitation(aliceFile, "bob")
+			Expect(err).To(BeNil())
+
+			err = eve.AcceptInvitation("alice", invitation, eveFile)
+			Expect(err).ToNot(BeNil())
+		})
 	})
 
 	Describe("Revoke Tests", func() {
