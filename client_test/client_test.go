@@ -268,6 +268,13 @@ var _ = Describe("Client Tests", func() {
 			Expect(err).ToNot(BeNil())
 		})
 
+		Specify("Init/GetUser Test: Testing username is case sensitive.", func() {
+			_, err := client.InitUser("Alice", defaultPassword)
+			Expect(err).To(BeNil())
+			_, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+		})
+
 		Specify("Init/GetUser Test: Testing User with 0 length password", func() {
 			alice, err = client.InitUser("alice", emptyString)
 			Expect(err).To(BeNil())
@@ -671,6 +678,42 @@ var _ = Describe("Client Tests", func() {
 
 			err = bobLaptop.AcceptInvitation("alice", invite, bobFile)
 			Expect(err).To(BeNil())
+		})
+
+		Specify("Create/AcceptInvitation Test: Testing overwritten by shared user.", func() {
+			alice, err = client.InitUser("alice", emptyString)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", emptyString)
+			Expect(err).To(BeNil())
+			charles, err = client.InitUser("charles", emptyString)
+			Expect(err).To(BeNil())
+
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			invitation, err := alice.CreateInvitation(aliceFile, "bob")
+			Expect(err).To(BeNil())
+			err = bob.AcceptInvitation("alice", invitation, bobFile)
+			Expect(err).To(BeNil())
+
+			data, err := alice.LoadFile(aliceFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentOne)))
+
+			data, err = bob.LoadFile(bobFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentOne)))
+
+			err = bob.StoreFile(bobFile, []byte(contentTwo))
+			Expect(err).To(BeNil())
+
+			data, err = alice.LoadFile(aliceFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentTwo)))
+
+			data, err = bob.LoadFile(bobFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentTwo)))
 		})
 	})
 
