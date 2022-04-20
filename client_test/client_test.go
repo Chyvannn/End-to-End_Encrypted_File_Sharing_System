@@ -338,7 +338,6 @@ var _ = Describe("Client Tests", func() {
 	})
 
 	Describe("Store/Load/AppendToFile Tests", func() {
-		//TODO: Testing multiple user with multiple files
 		Specify("Store/Load/AppendToFile Test: Testing same filename in different userspace", func() {
 			alice, err = client.InitUser("alice", defaultPassword)
 			Expect(err).To(BeNil())
@@ -673,37 +672,6 @@ var _ = Describe("Client Tests", func() {
 			err = bobLaptop.AcceptInvitation("alice", invite, bobFile)
 			Expect(err).To(BeNil())
 		})
-
-		Specify("Create/AcceptInvitation Test: Testing sharing file does not add copy of file.", func() {
-			alice, err = client.InitUser("alice", defaultPassword)
-			Expect(err).To(BeNil())
-			bob, err = client.InitUser("bob", defaultPassword)
-			Expect(err).To(BeNil())
-
-			err = alice.StoreFile(aliceFile, []byte(contentOne))
-			Expect(err).To(BeNil())
-
-			for i := 0; i < 10; i++ {
-				err = alice.AppendToFile(aliceFile, []byte(contentTwo))
-				Expect(err).To(BeNil())
-			}
-
-			entryNumBeforeInvite := len(userlib.DatastoreGetMap())
-
-			invite, err := alice.CreateInvitation(aliceFile, "bob")
-			Expect(err).To(BeNil())
-
-			entryNumAfterInvite := len(userlib.DatastoreGetMap())
-			noFileCopy := entryNumAfterInvite == 2+entryNumBeforeInvite
-			Expect(noFileCopy).To(BeTrue())
-
-			err = bob.AcceptInvitation("alice", invite, bobFile)
-			Expect(err).To(BeNil())
-
-			entryNumAfterAccept := len(userlib.DatastoreGetMap())
-			noFileCopy = entryNumAfterAccept == 2+entryNumBeforeInvite
-			Expect(noFileCopy).To(BeTrue())
-		})
 	})
 
 	Describe("Revoke Tests", func() {
@@ -910,10 +878,6 @@ var _ = Describe("Client Tests", func() {
 			data, err = ira.LoadFile(iraFile)
 			Expect(err).To(BeNil())
 			Expect(data).To(Equal([]byte(contentOne)))
-
-			userlib.DebugMsg("\n\n%d\n", len(userlib.DatastoreGetMap()))
-			correctDataEntry := len(userlib.DatastoreGetMap()) == 23
-			Expect(correctDataEntry).To(BeTrue())
 
 			err = alice.RevokeAccess(aliceFile, "bob")
 			Expect(err).To(BeNil())

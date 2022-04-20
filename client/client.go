@@ -81,7 +81,7 @@ type Invitation struct {
  * One Lockbox per ShareNode
  */
 type Lockbox struct {
-	fileBaseKey []byte // Protect file
+	FileBaseKey []byte // Protect file
 }
 
 /* All the data stored in Datastore, */
@@ -181,7 +181,7 @@ func GetUser(username string, password string) (userdataptr *User, err error) {
 }
 
 func (userdata *User) StoreFile(filename string, content []byte) (err error) {
-	var fileHeader FileHeader //Done
+	var fileHeader FileHeader
 	var shareNode ShareNode
 	var lockbox Lockbox
 	var fileBody FileBody
@@ -236,7 +236,7 @@ func (userdata *User) StoreFile(filename string, content []byte) (err error) {
 	if err != nil {
 		return
 	}
-	lockbox.fileBaseKey = fileBaseKey
+	lockbox.FileBaseKey = fileBaseKey
 	lockboxEncKey, lockboxMacKey, err := getKeyPairFromBase(lockboxBaseKey)
 	if err != nil {
 		return err
@@ -412,7 +412,7 @@ func (userdata *User) CreateInvitation(filename string, recipientUsername string
 
 		// Store the new Lockbox in DataStore
 		var lockbox Lockbox
-		lockbox.fileBaseKey = fileBodyBaseKey
+		lockbox.FileBaseKey = fileBodyBaseKey
 		lockboxBaseKey, err := getLockboxBaseKey(recipientNode.SNBaseKey)
 		if err != nil {
 			return uuid.Nil, err
@@ -568,7 +568,7 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 	if err != nil {
 		return err
 	}
-	ownerLockbox.fileBaseKey = newFileBaseKey
+	ownerLockbox.FileBaseKey = newFileBaseKey
 	err = storeSymEncObject(ownerNode.LockboxId, ownerLockbox, lockboxEncKey, lockboxMacKey)
 	if err != nil {
 		return err
@@ -615,11 +615,11 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 		if ownerNode.ChildrenName[i] != recipientUsername {
 			// If the current child is not the one we will revoke, recypher all the information
 			// Get old child base key and then enc & mac key
-			lockbox.fileBaseKey = newFileBaseKey
+			lockbox.FileBaseKey = newFileBaseKey
 		} else {
 			// If recipient found, zero out the recipient name in owner's list
 			ownerNode.ChildrenName[i] = ""
-			lockbox.fileBaseKey = nil
+			lockbox.FileBaseKey = nil
 			userlib.DatastoreDelete(childId)
 		}
 
@@ -872,7 +872,7 @@ func (shareNode *ShareNode) getSNFileBaseKey() (fileBaseKey []byte, err error) {
 	if err != nil {
 		return nil, err
 	}
-	return lockbox.fileBaseKey, nil
+	return lockbox.FileBaseKey, nil
 }
 
 /* Get FileBody from username and filename*/
@@ -908,7 +908,7 @@ func getUUIDFromString(bytes []byte) (uid UUID, err error) {
 func getUserBaseKey(username string, password []byte) (baseKey []byte) {
 	temp := append(password, []byte(username)...)
 	baseKey = userlib.Argon2Key(temp, []byte(username), 16)
-	return
+	return baseKey[:16]
 }
 
 /* Get FileHeader base key from user base key and filename*/
@@ -948,7 +948,6 @@ func getLockboxBaseKey(baseKey []byte) (lockboxBaseKey []byte, err error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(len(lockboxBaseKey))
 	return lockboxBaseKey[:16], nil
 }
 
