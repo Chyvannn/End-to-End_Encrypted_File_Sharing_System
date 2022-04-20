@@ -723,15 +723,18 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 		return err
 	}
 
-	for fileContent.PrevContent != uuid.Nil {
-		err = getSymEncObject(fileContent.PrevContent, oldFBEncKey, oldFBMacKey, &fileContent)
+	var prevContentId UUID = fileContent.PrevContent
+
+	for prevContentId != uuid.Nil {
+		err = getSymEncObject(prevContentId, oldFBEncKey, oldFBMacKey, &fileContent)
 		if err != nil {
 			return err
 		}
-		err = storeSymEncObject(fileContent.PrevContent, fileContent, newFBEncKey, newFBMacKey)
+		err = storeSymEncObject(prevContentId, fileContent, newFBEncKey, newFBMacKey)
 		if err != nil {
 			return err
 		}
+		prevContentId = fileContent.PrevContent
 	}
 
 	return nil
