@@ -732,6 +732,21 @@ var _ = Describe("Client Tests", func() {
 			err = eve.AcceptInvitation("alice", invitation, eveFile)
 			Expect(err).ToNot(BeNil())
 		})
+
+		Specify("Create/AcceptInvitation Test: Testing invitating being deleted.", func() {
+			alice, err = client.InitUser("alice", emptyString)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", emptyString)
+			Expect(err).To(BeNil())
+
+			_ = alice.StoreFile(aliceFile, []byte(contentOne))
+			invitation, _ := alice.CreateInvitation(aliceFile, "bob")
+
+			userlib.DatastoreDelete(invitation)
+
+			err := bob.AcceptInvitation("alice", invitation, bobFile)
+			Expect(err).ToNot(BeNil())
+		})
 	})
 
 	Describe("Revoke Tests", func() {
