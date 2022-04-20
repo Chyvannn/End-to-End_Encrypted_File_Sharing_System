@@ -51,7 +51,7 @@ type FileHeader struct { // UUID <-- "username_filename"
 /* A single node in the sharing tree, may have multiple owners
  * Root ShareNode UUID is generated randomly
  * Child ShareNode Id is generate from owner + direct recipient username
- * ShareNode will not be recyphered in revocation, only change fileBasekey in Lockbox!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+ * ShareNode will not be recyphered in revocation, only change fileBasekey in Lockbox
  */
 type ShareNode struct { // root UUID <-- random, child UUID <-- "sendername_recipientname_filename" to locate children when revoke
 	FileBodyId   UUID
@@ -72,14 +72,12 @@ type FileContent struct { // UUID <-- random
 }
 
 type Invitation struct {
-	ShareId UUID // Recipient ShareNode location
-	// LockboxId         UUID   // Share the lockbox location
+	ShareId           UUID   // Recipient ShareNode location
 	InvitationBaseKey []byte // Protect lockbox
 }
 
-/* Lockbox protection is not changed during revocation, we only change the fileBaseKey in it!!!!!!!!!!!!!!!!!!!!!!!!!
- * One Lockbox per ShareNode
- */
+/* Lockbox protection is not changed during revocation, we only change the fileBaseKey in it
+ * One Lockbox per ShareNode */
 type Lockbox struct {
 	FileBaseKey []byte // Protect file
 }
@@ -533,7 +531,8 @@ func (userdata *User) RevokeAccess(filename string, recipientUsername string) er
 		return err
 	}
 	_, ok = userlib.DatastoreGet(invitationDataId)
-	if ok { // Invitation not accepted
+	if ok {
+		// Invitation not accepted
 		userlib.DatastoreDelete(invitationDataId)
 		for i := 0; i < len(ownerNode.ChildrenName); i++ {
 			if ownerNode.ChildrenName[i] == recipientUsername {
