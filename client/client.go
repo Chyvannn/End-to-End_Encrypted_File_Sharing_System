@@ -498,13 +498,8 @@ func (userdata *User) AcceptInvitation(senderUsername string, invitationPtr uuid
 
 func (userdata *User) RevokeAccess(filename string, recipientUsername string) error {
 	// Get the owner FileHeader, unchanged after revoke access
-	var ownerFileHeader FileHeader
-	err := userdata.getFileHeader(filename, &ownerFileHeader)
-	if err != nil {
-		return err
-	}
 	var ownerNode ShareNode
-	err = userdata.getShareNode(filename, &ownerNode)
+	err := userdata.getShareNode(filename, &ownerNode)
 	if err != nil {
 		return err
 	}
