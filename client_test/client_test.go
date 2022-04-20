@@ -760,7 +760,9 @@ var _ = Describe("Client Tests", func() {
 			Expect(err).To(BeNil())
 			bob, err = client.InitUser("bob", defaultPassword)
 			Expect(err).To(BeNil())
+
 			alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
 
 			invite, err := alice.CreateInvitation(aliceFile, "bob")
 			Expect(err).To(BeNil())
@@ -769,6 +771,9 @@ var _ = Describe("Client Tests", func() {
 			Expect(err).To(BeNil())
 
 			err = bob.AcceptInvitation("alice", invite, bobFile)
+			Expect(err).ToNot(BeNil())
+
+			_, err = bob.LoadFile(bobFile)
 			Expect(err).ToNot(BeNil())
 		})
 
@@ -903,6 +908,49 @@ var _ = Describe("Client Tests", func() {
 			Expect(err).ToNot(BeNil())
 			_, err = ira.LoadFile(iraFile)
 			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Revoke Test: Testing sharing after revocation.", func() {
+			alice, err = client.InitUser("alice", emptyString)
+			Expect(err).To(BeNil())
+			bob, err = client.InitUser("bob", emptyString)
+			Expect(err).To(BeNil())
+			charles, err = client.InitUser("charles", emptyString)
+			Expect(err).To(BeNil())
+			doris, err = client.InitUser("doris", emptyString)
+			Expect(err).To(BeNil())
+
+			err = alice.StoreFile(aliceFile, []byte(contentOne))
+			Expect(err).To(BeNil())
+
+			invitation, err := alice.CreateInvitation(aliceFile, "bob")
+			Expect(err).To(BeNil())
+			err = bob.AcceptInvitation("alice", invitation, bobFile)
+			Expect(err).To(BeNil())
+
+			invitation, err = alice.CreateInvitation(aliceFile, "charles")
+			Expect(err).To(BeNil())
+			err = charles.AcceptInvitation("alice", invitation, charlesFile)
+			Expect(err).To(BeNil())
+
+			data, err := bob.LoadFile(bobFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentOne)))
+			data, err = charles.LoadFile(charlesFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentOne)))
+
+			err = alice.RevokeAccess(aliceFile, "bob")
+			Expect(err).To(BeNil())
+
+			invitation, err = alice.CreateInvitation(aliceFile, "doris")
+			Expect(err).To(BeNil())
+			err = doris.AcceptInvitation("alice", invitation, dorisFile)
+			Expect(err).To(BeNil())
+
+			data, err = doris.LoadFile(dorisFile)
+			Expect(err).To(BeNil())
+			Expect(data).To(Equal([]byte(contentOne)))
 		})
 	})
 })
