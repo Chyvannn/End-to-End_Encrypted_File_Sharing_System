@@ -37,6 +37,7 @@ const emptyString = ""
 const contentOne = "Bitcoin is Nick's favorite "
 const contentTwo = "digital "
 const contentThree = "cryptocurrency!"
+const longContent = "Loooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooog"
 
 // ================================================
 // Describe(...) blocks help you organize your tests
@@ -444,6 +445,17 @@ var _ = Describe("Client Tests", func() {
 			userlib.DatastoreClear()
 			err := alice.AppendToFile(aliceFile, []byte(contentTwo))
 			Expect(err).ToNot(BeNil())
+		})
+
+		Specify("Store/Load/AppendToFile Test: Testing store/append long files.", func() {
+			alice, err = client.InitUser("alice", defaultPassword)
+			Expect(err).To(BeNil())
+
+			err = alice.StoreFile(aliceFile, []byte(longContent))
+			Expect(err).To(BeNil())
+
+			err := alice.AppendToFile(aliceFile, []byte(longContent))
+			Expect(err).To(BeNil())
 		})
 	})
 
