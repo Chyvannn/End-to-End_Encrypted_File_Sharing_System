@@ -57,8 +57,9 @@ type PublicEncData struct {
 
 ### User Authentication
 
-- User Authenticatoin will be performed with multi-level protection using symmetric encryption and MAC.
-- Since `User` will not store any File specified data, and `FileHeader` will be retrieved each time we want to access a file, multiple user instance is automatically supported.
+> User Authenticatoin will be performed with multi-level protection using symmetric encryption and MAC.
+>
+> Since `User` will not store any File specified data, and `FileHeader` will be retrieved each time we want to access a file, multiple user instance is automatically supported.
 
 #### `InitUser(username string, password string)`
 
@@ -77,13 +78,19 @@ type PublicEncData struct {
 
 ### File Storage and Retrieval
 
-- File is stored using a multilevel structure: {FileHeader} -- {ShareNode} -- {FileBody} -- {FileContent}
-- The top level `FileHeaderNode` is protected by `UserBaseKey`. `FileHeader` UUID is derived from `username||filename` in the userspace on fly. It contains `ShareNode` UUID of direct owner `ShareNode`. The base key here is derived from `User` base key.
-- The collection of `ShareNode` is a flattened tree of height 2. Each `ShareNode` stores the following FileBody and self's UUID, the `Lockbox` containing the base key to protect `FileBody`, a ShareNode base key to derive child and lock base keys, and a children name array. The array will be nil if the `ShareNode` is a child, and empty if the `ShareNode` is a root.
-- `FileBody` contains the UUID for the last appended `FileContent` and a base key to protect all the `FileContent`. The UUID of FileBody is generated randomly.
-- `FileContent` contains the actual contents and the UUID for the previous content being appended. The UUID of `FileContent` is generated randomly.
-- Using `LastContent` in `FileBody` and `PrevContent` in `FileContent`, we established a linked file content structure.
-- Since `FileContent` is appended indivitually into the content list and we only need to update two UUID, efficiency is guaranteed for `AppendToFile()`
+> File is stored using a multilevel structure: {FileHeader} -- {ShareNode} -- {FileBody} -- {FileContent}
+>
+> The top level `FileHeaderNode` is protected by `UserBaseKey`. `FileHeader` UUID is derived from `username||filename` in the userspace on fly. It contains `ShareNode` UUID of direct owner `ShareNode`. The base key here is derived from `User` base key.
+>
+> The collection of `ShareNode` is a flattened tree of height 2. Each `ShareNode` stores the following FileBody and self's UUID, the `Lockbox` containing the base key to protect `FileBody`, a ShareNode base key to derive child and lock base keys, and a children name array. The array will be nil if the `ShareNode` is a child, and empty if the `ShareNode` is a root.
+>
+> `FileBody` contains the UUID for the last appended `FileContent` and a base key to protect all the `FileContent`. The UUID of FileBody is generated randomly.
+>
+> `FileContent` contains the actual contents and the UUID for the previous content being appended. The UUID of `FileContent` is generated randomly.
+>
+> Using `LastContent` in `FileBody` and `PrevContent` in `FileContent`, we established a linked file content structure.
+>
+> Since `FileContent` is appended indivitually into the content list and we only need to update two UUID, efficiency is guaranteed for `AppendToFile()`
 
 #### `StoreFile(filename string, content []byte)`
 
@@ -104,8 +111,9 @@ type PublicEncData struct {
 
 ### File Sharing and Revocation
 
-- File sharing is maintained by `ShareNode` tree structure. `ShareNode` will have different behaviors during create and accept invitation based on `ChildrenName`.
-- All the file base keys will be regenerated and distributed along lockbox of the remaining `ShareNode`.
+> File sharing is maintained by `ShareNode` tree structure. `ShareNode` will have different behaviors during create and accept invitation based on `ChildrenName`.
+>
+> All the file base keys will be regenerated and distributed along lockbox of the remaining `ShareNode`.
 
 #### `CreateInvitation(filename string, recipientUsername string)`
 
@@ -134,7 +142,7 @@ type PublicEncData struct {
 
 - While deleting the child `ShareNode`, we first derive a new file base key and distribute it to all the child `ShareNode` other than the revoked one. Only the Lockbox is re-encrupted and stored at the same location.
 
-## Helper Method
+## Helper Methods
 
 ```go
 /* Store an object into the Datastore with given UUID */
