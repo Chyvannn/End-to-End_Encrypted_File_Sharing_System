@@ -1,4 +1,20 @@
-# Project Design Doc: End-to-End Encrypted File Sharing System
+# Project Design Doc
+
+## Overview
+
+This project introduces a client application for a secure file sharing system, leveraging various cryptographic primitives to ensure data security. Imagine something similar to Dropbox, but secured with cryptography so that the server cannot view or tamper with user data.
+
+The client is implemented in **Golang** and offers a suite of features including:
+
+- Authenticate with a username and password;
+- Save files to the server;
+- Load saved files from the server;
+- Overwrite saved files on the server;
+- Append to saved files on the server;
+- Share saved files with other users; and
+- Revoke access to previously shared files.
+
+This project showcases how cryptography can be wielded to bolster traditional file-sharing systems, providing both utility and peace of mind to its users. Dive into the code to explore the cryptographic techniques employed and how they fortify the entire system against potential security threats.
 
 ## Data Structure
 
