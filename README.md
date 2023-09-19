@@ -1,4 +1,4 @@
-# End-to-End Encrypted File Sharing System Design Doc
+# Project Design Doc: End-to-End Encrypted File Sharing System
 
 ## Data Structure
 
@@ -53,12 +53,14 @@ type PublicEncData struct {
 }
 ```
 
-## User Authentication
+## Implementation Details
+
+### User Authentication
 
 - User Authenticatoin will be performed with multi-level protection using symmetric encryption and MAC.
 - Since `User` will not store any File specified data, and `FileHeader` will be retrieved each time we want to access a file, multiple user instance is automatically supported.
 
-#### InitUser(username string, password string)
+#### `InitUser(username string, password string)`
 
 - User authentication will be done on fly when the user enter username and password. A user base key will be generated from the `username||password` using PBKDF.
 
@@ -68,12 +70,12 @@ type PublicEncData struct {
   - Generate RSA key pair and digital signature key pair. The public keys will be stored in _KeyStore_ and the private keys will be stored in `User`.
   - Save the `User` in to _DataStore_ using root Enc/MAC keys by calling `storeObject()`.
 
-#### GetUser(username string, password string)
+#### `GetUser(username string, password string)`
 
 - Generate UUID from username using `getUUIDFromString()`, and generate root base key from`generateUserBaseKey()`.Then derive root Enc/Mac Keys.
 - Get `User` from _DataStore_ with Enc/MAC Keys using `getObject()`.
 
-## File Storage and Retrieval
+### File Storage and Retrieval
 
 - File is stored using a multilevel structure: {FileHeader} -- {ShareNode} -- {FileBody} -- {FileContent}
 - The top level `FileHeaderNode` is protected by `UserBaseKey`. `FileHeader` UUID is derived from `username||filename` in the userspace on fly. It contains `ShareNode` UUID of direct owner `ShareNode`. The base key here is derived from `User` base key.
@@ -83,29 +85,29 @@ type PublicEncData struct {
 - Using `LastContent` in `FileBody` and `PrevContent` in `FileContent`, we established a linked file content structure.
 - Since `FileContent` is appended indivitually into the content list and we only need to update two UUID, efficiency is guaranteed for `AppendToFile()`
 
-#### StoreFile(filename string, content []byte)
+#### `StoreFile(filename string, content []byte)`
 
 - Based on the file structure described above, we create and store `FileHeader`, `ShareNode`, `FileBody`, and `FileContent`, and generate base key for each layer. Base key is used to drive keys to protect sub-layers. Note that key protecting `FileBody` will be put into `Lockbox`.
 - When `StoreFile` is called, the receiver will always be the owner of the file. Thus, we will set `ChildrenName` to empty.
 - `LastContent` in `FileBody` will be set to the `FileContent` created in `StoreFile()`.
 
-#### LoadFile(filename string)
+#### `LoadFile(filename string)`
 
 - First get `FileBody` by calling `getFileBody()`, get the `LastContent` in `FileBody`, and retrieve that `FileContent`.
 - Repeatedly retrieve `FileContent` using `PrevContent` in `FileContent` until `PrevContent` is `uuid.Nil`. Every time we retrieve a new FileContent, we will appended the content in `FileContent` to `contentBytes` which will be returned in the end.
 
-#### AppendToFile(filename string, content []byte)
+#### `AppendToFile(filename string, content []byte)`
 
 - Get the `ShareNode` corresponding to the username and filename. Using information in `ShareNode` to retrive the `FileBody`. We will need information in `ShareNode` to update `FileBody` in _DataStore_ later.
 - Create a new `FileContent` with randomly generated UUID. This UUID will be assigned to `LastContent` of `FileBody`, and the `LastContent` will be assigned to `PrevContent` in newly created `FileContent`.
 - Finally, store both the new `FileContent` and updated `FileBody` to _DataStore_.
 
-## File Sharing and Revocation
+### File Sharing and Revocation
 
 - File sharing is maintained by `ShareNode` tree structure. `ShareNode` will have different behaviors during create and accept invitation based on `ChildrenName`.
 - All the file base keys will be regenerated and distributed along lockbox of the remaining `ShareNode`.
 
-#### CreateInvitation(filename string, recipientUsername string)
+#### `CreateInvitation(filename string, recipientUsername string)`
 
 - Retrieve `ShareNode` of sender using filename and sender name.
 - If sender node is the root (`ChildrenName` is not `nil`)
@@ -119,13 +121,13 @@ type PublicEncData struct {
 - Finally, this invitation is encrypted using the `RSAPublicKey` from recipient stored on _KeyStore_ and sign the encryed data using `DSSignKey` in `User` of recipient. This cyphertext and signature pair will be stored in `PublicEncData`. The UUID of `InvitationData` is generated from `"Invitation: " + sendername + filename + recipientname`. Note that while children `ShareNode` also generate UUID from these three string, they are using the different combination and extra string `"Invitation: "`, so that the hashed bytes will have no collision.
 - `PublicEncData` is directly putting into _DataStore_ without protection.
 
-#### AcceptInvitation(senderUsername string, invitationPtr UUID, filename string)
+#### `AcceptInvitation(senderUsername string, invitationPtr UUID, filename string)`
 
 - Retrieve `InvitationData` after checking that the UUID exist and delete the `Invitation` in _DataStore_.
 - Decrypt cyphertext using private key stored in recipient `User` after verifing the signature using digital signature verify key stored in _KeyStore_.
 - Create the `FileHeader` whose UUID is generated from filename and username, store the `ShareNode` UUID in `Invitation` to newly created `FileHeader`.
 
-#### RevokeAccess(filename string, recipientUsername string)
+#### `RevokeAccess(filename string, recipientUsername string)`
 
 - Revocation will be done only on the `ShareNode` level. The only change after revocation is the `FileBaseKey` in the `Lockbox`. By store the updated key in lockbox, we can revoke recipients' access.
 - Check if the `Invitation` is accpted and if the shared file exist. If so, we will delet corresponding `ShareNode` and `Invitation`.
